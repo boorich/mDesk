@@ -1,0 +1,33 @@
+[package]
+name = "m-desk-new"
+version = "0.1.0"
+authors = ["empea-careercriminal <empeamtk@googlemail.com>"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+dioxus = { version = "0.6.0", features = ["router"] }
+tokio = { version = "1.36", features = ["sync", "rt", "time"] }
+mcp-client = { path = "/Users/martinmaurer/Projects/mcp_rust_sdk/crates/mcp-client" }
+futures = "0.3"
+tower = "0.4"
+serde_json = "1.0"
+
+[features]
+default = ["desktop"]
+web = ["dioxus/web"]
+desktop = ["dioxus/desktop"]
+mobile = ["dioxus/mobile"]
+
+[profile]
+
+[profile.wasm-dev]
+inherits = "dev"
+opt-level = 1
+
+[profile.server-dev]
+inherits = "dev"
+
+[profile.android-dev]
+inherits = "dev"
