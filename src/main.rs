@@ -6,12 +6,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone, Routable, PartialEq)]
 #[rustfmt::skip]
 enum Route {
-    #[layout(Navbar)]
     #[route("/")]
-    Home {},
-    #[route("/blog/:id")]
-    Blog { id: i32 },
-    #[route("/mcp")]
     McpDemo {},
 }
 
@@ -60,76 +55,6 @@ fn Home() -> Element {
     }
 }
 
-/// Blog page
-#[component]
-pub fn Blog(id: i32) -> Element {
-    rsx! {
-        div {
-            id: "blog",
-
-            // Content
-            h1 { "This is blog #{id}!" }
-            p { "In blog #{id}, we show how the Dioxus router works and how URL parameters can be passed as props to our route components." }
-
-            // Navigation links
-            Link {
-                to: Route::Blog { id: id - 1 },
-                "Previous"
-            }
-            span { " <---> " }
-            Link {
-                to: Route::Blog { id: id + 1 },
-                "Next"
-            }
-        }
-    }
-}
-
-/// Shared navbar component.
-#[component]
-fn Navbar() -> Element {
-    rsx! {
-        div {
-            id: "navbar",
-            Link {
-                to: Route::Home {},
-                "Home"
-            }
-            Link {
-                to: Route::Blog { id: 1 },
-                "Blog"
-            }
-            // Add MCP Demo link
-            Link {
-                to: Route::McpDemo {},
-                "MCP Demo"
-            }
-        }
-
-        Outlet::<Route> {}
-    }
-}
-
-// Mock data structures to simulate MCP responses
-struct MockResource {
-    name: String,
-    uri: String,
-}
-
-struct MockResourcesResult {
-    resources: Vec<MockResource>,
-    has_more: bool,
-}
-
-struct MockTool {
-    name: String,
-    description: String,
-}
-
-struct MockToolsResult {
-    tools: Vec<MockTool>,
-    has_more: bool,
-}
 
 /// MCP Demo page with simulated client calls
 #[component]
@@ -223,14 +148,19 @@ fn McpDemo() -> Element {
                 }
                 
                 // Show error message if any
-                {match *error_message.read() {
-                    Some(ref err) => rsx!(
-                        div { class: "mt-2 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded",
-                            p { "{err}" }
-                        }
-                    ),
-                    None => rsx!()
-                }}
+                {
+                    match *error_message.read() {
+                        Some(ref err) => {
+                            rsx!(
+                                div { 
+                                    class: "mt-2 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded",
+                                    p { "{err}" }
+                                }
+                            )
+                        },
+                        None => rsx!()
+                    }
+                }
             }
             
             // Actions section
@@ -261,42 +191,54 @@ fn McpDemo() -> Element {
             }
             
             // Resources section
-            {match *show_resources.read() {
-                true => rsx!(
-                    div { class: "mb-4 p-4 border border-green-300 rounded",
-                        h3 { class: "text-lg font-semibold mb-2", "Resources" }
-                        
-                        ul { class: "list-disc pl-5",
-                            for (name, uri) in &resources {
-                                li { 
-                                    span { class: "font-medium", "{name}" }
-                                    " - URI: {uri}"
+            {
+                match *show_resources.read() {
+                    true => {
+                        rsx!(
+                            div { 
+                                class: "mb-4 p-4 border border-green-300 rounded",
+                                h3 { class: "text-lg font-semibold mb-2", "Resources" }
+                                
+                                ul { 
+                                    class: "list-disc pl-5",
+                                    for (name, uri) in &resources {
+                                        li { 
+                                            span { class: "font-medium", "{name}" }
+                                            " - URI: {uri}"
+                                        }
+                                    }
                                 }
                             }
-                        }
-                    }
-                ),
-                false => rsx!()
-            }}
+                        )
+                    },
+                    false => rsx!()
+                }
+            }
             
             // Tools section
-            {match *show_tools.read() {
-                true => rsx!(
-                    div { class: "mb-4 p-4 border border-purple-300 rounded",
-                        h3 { class: "text-lg font-semibold mb-2", "Tools" }
-                        
-                        ul { class: "list-disc pl-5",
-                            for (name, description) in &tools {
-                                li { 
-                                    span { class: "font-medium", "{name}" }
-                                    " - {description}"
+            {
+                match *show_tools.read() {
+                    true => {
+                        rsx!(
+                            div { 
+                                class: "mb-4 p-4 border border-purple-300 rounded",
+                                h3 { class: "text-lg font-semibold mb-2", "Tools" }
+                                
+                                ul { 
+                                    class: "list-disc pl-5",
+                                    for (name, description) in &tools {
+                                        li { 
+                                            span { class: "font-medium", "{name}" }
+                                            " - {description}"
+                                        }
+                                    }
                                 }
                             }
-                        }
-                    }
-                ),
-                false => rsx!()
-            }}
+                        )
+                    },
+                    false => rsx!()
+                }
+            }
             
             // Implementation guidance section
             div { class: "mt-8 p-4 border border-gray-300 rounded",
