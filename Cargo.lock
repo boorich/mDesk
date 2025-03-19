@@ -2698,9 +2698,11 @@ checksum = "b3bd0dd2cd90571056fdb71f6275fada10131182f84899f4b2a916e565d81d86"
 name = "m-desk-new"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "dioxus",
  "futures",
  "mcp-client",
+ "mcp-core",
  "serde_json",
  "tokio",
  "tower 0.4.13",
