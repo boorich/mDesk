@@ -19,9 +19,8 @@ enum Route {
 
 const FAVICON: Asset = asset!("/assets/favicon.ico");
 const MAIN_CSS: Asset = asset!("/assets/main.css");
-const HEADER_SVG: Asset = asset!("/assets/header.svg");
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
-const MCP_CLIENT_CSS: Asset = asset!("/assets/mcp-client.css");
+const MDESK_CSS: Asset = asset!("/assets/mdesk.css");
 
 fn main() {
     dioxus::launch(App);
@@ -33,35 +32,8 @@ fn App() -> Element {
         document::Link { rel: "icon", href: FAVICON }
         document::Link { rel: "stylesheet", href: MAIN_CSS }
         document::Link { rel: "stylesheet", href: TAILWIND_CSS }
-        document::Link { rel: "stylesheet", href: MCP_CLIENT_CSS }
+        document::Link { rel: "stylesheet", href: MDESK_CSS }
         Router::<Route> {}
-    }
-}
-
-#[component]
-pub fn Hero() -> Element {
-    rsx! {
-        div { id: "hero",
-            img { src: HEADER_SVG, id: "header" }
-            div { id: "links",
-                a { href: "https://dioxuslabs.com/learn/0.6/", "📚 Learn Dioxus" }
-                a { href: "https://dioxuslabs.com/awesome", "🚀 Awesome Dioxus" }
-                a { href: "https://github.com/dioxus-community/", "📡 Community Libraries" }
-                a { href: "https://github.com/DioxusLabs/sdk", "⚙️ Dioxus Development Kit" }
-                a { href: "https://marketplace.visualstudio.com/items?itemName=DioxusLabs.dioxus",
-                    "💫 VSCode Extension"
-                }
-                a { href: "https://discord.gg/XgGxMSkvUM", "👋 Community Discord" }
-            }
-        }
-    }
-}
-
-/// Home page
-#[component]
-fn Home() -> Element {
-    rsx! {
-        Hero {}
     }
 }
 
@@ -79,6 +51,7 @@ fn McpDemo() -> Element {
     let mut show_tools = use_signal(|| false);
     let mut resources = use_signal(Vec::<McpResource>::new);
     let mut tools = use_signal(Vec::<Tool>::new);
+    let mut active_section = use_signal(|| "home");
     
     let mut mcp_state = use_signal(|| McpState { client: None });
     
@@ -132,7 +105,7 @@ fn McpDemo() -> Element {
                         
                         match client.initialize(
                             ClientInfo {
-                                name: "dioxus-mcp-demo".to_string(),
+                                name: "mDesk".to_string(),
                                 version: "0.1.0".to_string(),
                             },
                             ClientCapabilities::default()
@@ -159,12 +132,13 @@ fn McpDemo() -> Element {
     };
     
     // List resources using real client
-    let list_resources = move |_| {
+    let mut list_resources = move |_| {
         if let Some(client) = &mcp_state.read().client {
             client_status.set("Fetching resources...".to_string());
             error_message.set(None);
             show_resources.set(true);
             show_tools.set(false);
+            active_section.set("resources");
             
             spawn({
                 to_owned![client, client_status, error_message, resources];
@@ -188,12 +162,13 @@ fn McpDemo() -> Element {
     };
     
     // List tools using real client
-    let list_tools = move |_| {
+    let mut list_tools = move |_| {
         if let Some(client) = &mcp_state.read().client {
             client_status.set("Fetching tools...".to_string());
             error_message.set(None);
             show_resources.set(false);
             show_tools.set(true);
+            active_section.set("tools");
             
             spawn({
                 to_owned![client, client_status, error_message, tools];
@@ -215,97 +190,518 @@ fn McpDemo() -> Element {
             error_message.set(Some("Client not initialized".to_string()));
         }
     };
-    
+
+    // Set active section
+    let set_section = move |section: &'static str| {
+        move |_| {
+            active_section.set(section);
+            if section == "resources" {
+                list_resources(());
+            } else if section == "tools" {
+                list_tools(());
+            } else {
+                show_resources.set(false);
+                show_tools.set(false);
+            }
+        }
+    };
     rsx! {
-        div { class: "app-container",
+        div { class: "app-wrapper",
             // Sidebar
-            div { class: "sidebar",
-                h1 { class: "app-title", "MCP Server Manager" }
-                div { class: "server-status",
-                    div { 
-                        class: {
-                            match client_status.read().as_str() {
-                                "Not initialized" => "status-indicator offline",
-                                "Error" => "status-indicator error",
-                                _ => "status-indicator online"
+            aside { class: "sidebar",
+                div { class: "sidebar-header",
+                    svg {
+                        class: "app-logo",
+                        width: "32",
+                        height: "32",
+                        view_box: "0 0 24 24",
+                        fill: "none",
+                        xmlns: "http://www.w3.org/2000/svg",
+                        path {
+                            d: "M10 4H14C18.4183 4 22 7.58172 22 12C22 16.4183 18.4183 20 14 20H4V12C4 7.58172 7.58172 4 12 4",
+                            stroke: "currentColor",
+                            stroke_width: "2",
+                            stroke_linecap: "round",
+                            stroke_linejoin: "round"
+                        }
+                    }
+                    div { class: "app-title", "mDesk" }
+                }
+
+                div { class: "sidebar-section",
+                    div { class: "section-header", "Navigation" }
+                    
+                    button {
+                        class: if *active_section.read() == "home" { "nav-item active" } else { "nav-item" },
+                        onclick: set_section("home"),
+                        svg {
+                            class: "nav-icon",
+                            xmlns: "http://www.w3.org/2000/svg",
+                            width: "20",
+                            height: "20",
+                            view_box: "0 0 24 24",
+                            fill: "none",
+                            stroke: "currentColor",
+                            stroke_width: "2",
+                            stroke_linecap: "round",
+                            stroke_linejoin: "round",
+                            path {
+                                d: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
                             }
                         }
+                        span { "Home" }
                     }
-                    span { class: "status-text", "{client_status}" }
-                }
-
-                if let Some(ref error) = *error_message.read() {
-                    div { class: "error-message",
-                        span { class: "error-icon", "⚠" }
-                        span { class: "error-text", "{error}" }
-                    }
-                }
-
-                // Main actions
-                div { class: "server-controls",
+                    
                     button {
-                        class: if mcp_state.read().client.is_some() {
-                            "control-button stop"
-                        } else {
-                            "control-button start"
-                        },
-                        disabled: client_status.read().to_string() == "Shutting down...",
-                        onclick: server_action,
-                        if mcp_state.read().client.is_some() {
-                            "Stop MCP Server"
-                        } else {
-                            "Start MCP Server"
+                        class: if *active_section.read() == "resources" { "nav-item active" } else { "nav-item" },
+                        onclick: set_section("resources"),
+                        disabled: mcp_state.read().client.is_none(),
+                        svg {
+                            class: "nav-icon",
+                            xmlns: "http://www.w3.org/2000/svg",
+                            width: "20",
+                            height: "20",
+                            view_box: "0 0 24 24",
+                            fill: "none",
+                            stroke: "currentColor",
+                            stroke_width: "2",
+                            stroke_linecap: "round",
+                            stroke_linejoin: "round",
+                            path {
+                                d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"
+                            }
+                            polyline {
+                                points: "7 10 12 15 17 10"
+                            }
+                            line {
+                                x1: "12",
+                                y1: "15",
+                                x2: "12",
+                                y2: "3"
+                            }
+                        }
+                        span { "Resources" }
+                    }
+                    
+                    button {
+                        class: if *active_section.read() == "tools" { "nav-item active" } else { "nav-item" },
+                        onclick: set_section("tools"),
+                        disabled: mcp_state.read().client.is_none(),
+                        svg {
+                            class: "nav-icon",
+                            xmlns: "http://www.w3.org/2000/svg",
+                            width: "20",
+                            height: "20",
+                            view_box: "0 0 24 24",
+                            fill: "none",
+                            stroke: "currentColor",
+                            stroke_width: "2",
+                            stroke_linecap: "round",
+                            stroke_linejoin: "round",
+                            path {
+                                d: "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
+                            }
+                        }
+                        span { "Tools" }
+                    }
+                }
+
+                div { class: "sidebar-section",
+                    div { class: "section-header", "Server Status" }
+                    
+                    div { class: "status-card",
+                        div { 
+                            class: {
+                                match client_status.read().as_str() {
+                                    "Not initialized" => "status-dot offline",
+                                    "Error" => "status-dot error",
+                                    _ => "status-dot online"
+                                }
+                            }
+                        }
+                        div { class: "status-info",
+                            div { class: "status-label", "Status" }
+                            div { class: "status-value", "{client_status}" }
                         }
                     }
+
+                    button {
+                        class: if mcp_state.read().client.is_some() {
+                            "action-button stop"
+                        } else {
+                            "action-button start"
+                        },
+                        disabled: client_status.read().to_string() == "Shutting down..." || client_status.read().to_string() == "Initializing...",
+                        onclick: server_action,
+                        
+                        svg {
+                            class: "button-icon",
+                            xmlns: "http://www.w3.org/2000/svg",
+                            width: "18",
+                            height: "18",
+                            view_box: "0 0 24 24",
+                            fill: "none",
+                            stroke: "currentColor",
+                            stroke_width: "2",
+                            stroke_linecap: "round",
+                            stroke_linejoin: "round",
+                            if mcp_state.read().client.is_some() {
+                                rect {
+                                    x: "6",
+                                    y: "6",
+                                    width: "12",
+                                    height: "12",
+                                    rx: "2",
+                                    ry: "2"
+                                }
+                            } else {
+                                polygon {
+                                    points: "5 3 19 12 5 21 5 3"
+                                }
+                            }
+                        }
+                        
+                        if mcp_state.read().client.is_some() {
+                            "Stop Server"
+                        } else {
+                            "Start Server"
+                        }
+                    }
+                }
+
+                // Version info
+                div { class: "sidebar-footer",
+                    div { class: "version-info", "mDesk v0.1.0" }
                 }
             }
 
             // Main content
-            div { class: "main-content",
-                div { class: "tools-panel",
-                    h2 { "Server Tools" }
-                    div { class: "tool-buttons",
-                        button {
-                            class: "tool-button",
-                            disabled: mcp_state.read().client.is_none(),
-                            onclick: list_resources,
-                            span { class: "icon", "📁" }
-                            span { "List Resources" }
+            main { class: "main-content",
+                if let Some(ref error) = *error_message.read() {
+                    div { class: "error-alert",
+                        svg {
+                            class: "error-icon",
+                            xmlns: "http://www.w3.org/2000/svg",
+                            width: "20",
+                            height: "20",
+                            view_box: "0 0 24 24",
+                            fill: "none",
+                            stroke: "currentColor",
+                            stroke_width: "2",
+                            stroke_linecap: "round",
+                            stroke_linejoin: "round",
+                            circle {
+                                cx: "12",
+                                cy: "12",
+                                r: "10"
+                            }
+                            line {
+                                x1: "12", 
+                                y1: "8", 
+                                x2: "12", 
+                                y2: "12"
+                            }
+                            line {
+                                x1: "12", 
+                                y1: "16", 
+                                x2: "12", 
+                                y2: "16"
+                            }
                         }
-                        button {
-                            class: "tool-button",
-                            disabled: mcp_state.read().client.is_none(),
-                            onclick: list_tools,
-                            span { class: "icon", "🔧" }
-                            span { "List Tools" }
+                        div { class: "error-content",
+                            div { class: "error-title", "Error" }
+                            div { class: "error-message", "{error}" }
                         }
                     }
                 }
 
-                // Results section
-                div { class: "results-section",
-                    if *show_resources.read() || *show_tools.read() {
-                        h2 { "Results" }
+                // Home section
+                div { class: if *active_section.read() == "home" { "content-section active" } else { "content-section" },
+                    div { class: "welcome-header",
+                        h1 { class: "welcome-title", "Welcome to mDesk" }
+                        p { class: "welcome-subtitle", "A native desktop application for managing MCP tools with OpenRouter LLM access" }
                     }
-                    
-                    if *show_resources.read() {
-                        div { class: "results-container",
-                            if resources.read().is_empty() {
-                                div { class: "empty-state", "No resources found" }
-                            } else {
-                                div { class: "resource-grid",
-                                    for resource in resources.read().iter() {
-                                        div { 
-                                            key: format!("resource-{}", &resource.name),
-                                            class: "resource-card",
-                                            h3 { class: "resource-name", "{resource.name}" }
-                                            if let Some(desc) = &resource.description {
-                                                p { class: "resource-description", "{desc}" }
+
+                    div { class: "panel getting-started",
+                        h2 { class: "panel-title", 
+                            svg {
+                                class: "panel-icon",
+                                xmlns: "http://www.w3.org/2000/svg",
+                                width: "18",
+                                height: "18",
+                                view_box: "0 0 24 24",
+                                fill: "none",
+                                stroke: "currentColor",
+                                stroke_width: "2",
+                                stroke_linecap: "round",
+                                stroke_linejoin: "round",
+                                circle {
+                                    cx: "12",
+                                    cy: "12",
+                                    r: "10"
+                                }
+                                line {
+                                    x1: "12", 
+                                    y1: "16", 
+                                    x2: "12", 
+                                    y2: "12"
+                                }
+                                line {
+                                    x1: "12", 
+                                    y1: "8", 
+                                    x2: "12", 
+                                    y2: "8"
+                                }
+                            }
+                            "Getting Started"
+                        }
+
+                        div { class: "panel-content",
+                            p { class: "panel-text", "Follow these steps to start using mDesk:" }
+                            
+                            ol { class: "steps-list",
+                                li { 
+                                    span { class: "step-number", "1" }
+                                    div { class: "step-content",
+                                        div { class: "step-title", "Start the MCP Server" }
+                                        div { class: "step-description", "Click the 'Start Server' button in the sidebar to initialize the MCP service." }
+                                    }
+                                }
+                                li { 
+                                    span { class: "step-number", "2" }
+                                    div { class: "step-content",
+                                        div { class: "step-title", "Explore Available Resources" }
+                                        div { class: "step-description", "Navigate to the Resources tab to view all available MCP resources." }
+                                    }
+                                }
+                                li { 
+                                    span { class: "step-number", "3" }
+                                    div { class: "step-content",
+                                        div { class: "step-title", "Discover Available Tools" }
+                                        div { class: "step-description", "Check the Tools tab to see what MCP tools are at your disposal." }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    div { class: "features-grid",
+                        div { class: "feature-card",
+                            div { class: "feature-icon",
+                                svg {
+                                    xmlns: "http://www.w3.org/2000/svg",
+                                    width: "24",
+                                    height: "24",
+                                    view_box: "0 0 24 24",
+                                    fill: "none",
+                                    stroke: "currentColor",
+                                    stroke_width: "2",
+                                    stroke_linecap: "round",
+                                    stroke_linejoin: "round",
+                                    path { 
+                                        d: "M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"
+                                    }
+                                    polyline { 
+                                        points: "7.5 4.21 12 6.81 16.5 4.21" 
+                                    }
+                                    polyline { 
+                                        points: "7.5 19.79 7.5 14.6 3 12" 
+                                    }
+                                    polyline { 
+                                        points: "21 12 16.5 14.6 16.5 19.79" 
+                                    }
+                                    polyline { 
+                                        points: "3.27 6.96 12 12.01 20.73 6.96" 
+                                    }
+                                    line { 
+                                        x1: "12", 
+                                        y1: "22.08", 
+                                        x2: "12", 
+                                        y2: "12" 
+                                    }
+                                }
+                            }
+                            div { class: "feature-title", "Native Integration" }
+                            div { class: "feature-description", "Seamlessly integrates with the Model Context Protocol (MCP) Rust SDK" }
+                        }
+
+                        div { class: "feature-card",
+                            div { class: "feature-icon",
+                                svg {
+                                    xmlns: "http://www.w3.org/2000/svg",
+                                    width: "24",
+                                    height: "24",
+                                    view_box: "0 0 24 24",
+                                    fill: "none",
+                                    stroke: "currentColor",
+                                    stroke_width: "2",
+                                    stroke_linecap: "round",
+                                    stroke_linejoin: "round",
+                                    circle { 
+                                        cx: "12", 
+                                        cy: "12", 
+                                        r: "10" 
+                                    }
+                                    circle { 
+                                        cx: "12", 
+                                        cy: "12", 
+                                        r: "4" 
+                                    }
+                                    line { 
+                                        x1: "21.17", 
+                                        y1: "8", 
+                                        x2: "12", 
+                                        y2: "8" 
+                                    }
+                                    line { 
+                                        x1: "3.95", 
+                                        y1: "6.06", 
+                                        x2: "8.54", 
+                                        y2: "14" 
+                                    }
+                                    line { 
+                                        x1: "10.88", 
+                                        y1: "21.94", 
+                                        x2: "15.46", 
+                                        y2: "14" 
+                                    }
+                                }
+                            }
+                            div { class: "feature-title", "OpenRouter Access" }
+                            div { class: "feature-description", "Connect to multiple LLMs through the OpenRouter service" }
+                        }
+
+                        div { class: "feature-card",
+                            div { class: "feature-icon",
+                                svg {
+                                    xmlns: "http://www.w3.org/2000/svg",
+                                    width: "24",
+                                    height: "24",
+                                    view_box: "0 0 24 24",
+                                    fill: "none",
+                                    stroke: "currentColor",
+                                    stroke_width: "2",
+                                    stroke_linecap: "round",
+                                    stroke_linejoin: "round",
+                                    rect { 
+                                        x: "3", 
+                                        y: "3", 
+                                        width: "18", 
+                                        height: "18", 
+                                        rx: "2", 
+                                        ry: "2" 
+                                    }
+                                    line { 
+                                        x1: "3", 
+                                        y1: "9", 
+                                        x2: "21", 
+                                        y2: "9" 
+                                    }
+                                    line { 
+                                        x1: "9", 
+                                        y1: "21", 
+                                        x2: "9", 
+                                        y2: "9" 
+                                    }
+                                }
+                            }
+                            div { class: "feature-title", "Modern Interface" }
+                            div { class: "feature-description", "Clean, intuitive UI designed for productivity" }
+                        }
+                    }
+                }                // Resources section
+                div { class: if *active_section.read() == "resources" { "content-section active" } else { "content-section" },
+                    div { class: "section-header",
+                        h1 { class: "section-title", "MCP Resources" }
+                        p { class: "section-description", "Explore available resources in the MCP server" }
+                    }
+
+                    div { class: "resource-container",
+                        if resources.read().is_empty() {
+                            div { class: "empty-state",
+                                svg {
+                                    class: "empty-icon",
+                                    xmlns: "http://www.w3.org/2000/svg",
+                                    width: "48",
+                                    height: "48",
+                                    view_box: "0 0 24 24",
+                                    fill: "none",
+                                    stroke: "currentColor",
+                                    stroke_width: "1",
+                                    stroke_linecap: "round",
+                                    stroke_linejoin: "round",
+                                    path {
+                                        d: "M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"
+                                    }
+                                    polyline {
+                                        points: "13 2 13 9 20 9"
+                                    }
+                                }
+                                div { class: "empty-title", "No Resources Found" }
+                                div { class: "empty-message", "There are currently no resources available in the MCP server." }
+                                button {
+                                    class: "reload-button",
+                                    onclick: move |_| list_resources(()),
+                                    svg {
+                                        class: "button-icon",
+                                        xmlns: "http://www.w3.org/2000/svg",
+                                        width: "16",
+                                        height: "16",
+                                        view_box: "0 0 24 24",
+                                        fill: "none",
+                                        stroke: "currentColor",
+                                        stroke_width: "2",
+                                        stroke_linecap: "round",
+                                        stroke_linejoin: "round",
+                                        path {
+                                            d: "M23 4v6h-6"
+                                        }
+                                        path {
+                                            d: "M1 20v-6h6"
+                                        }
+                                        path {
+                                            d: "M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"
+                                        }
+                                    }
+                                    "Reload Resources"
+                                }
+                            }
+                        } else {
+                            div { class: "resource-grid",
+                                for resource in resources.read().iter() {
+                                    div {
+                                        key: format!("resource-{}", &resource.name),
+                                        class: "resource-card",
+                                        div { class: "resource-header",
+                                            div { class: "resource-icon",
+                                                svg {
+                                                    xmlns: "http://www.w3.org/2000/svg",
+                                                    width: "20",
+                                                    height: "20",
+                                                    view_box: "0 0 24 24",
+                                                    fill: "none",
+                                                    stroke: "currentColor",
+                                                    stroke_width: "2",
+                                                    stroke_linecap: "round",
+                                                    stroke_linejoin: "round",
+                                                    path {
+                                                        d: "M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"
+                                                    }
+                                                    polyline {
+                                                        points: "13 2 13 9 20 9"
+                                                    }
+                                                }
                                             }
-                                            if let Some(annotations) = &resource.annotations {
-                                                div { class: "resource-annotations",
-                                                    h4 { "Annotations" }
-                                                    pre { "{annotations:?}" }
+                                            h3 { class: "resource-name", "{resource.name}" }
+                                        }
+                                        if let Some(desc) = &resource.description {
+                                            p { class: "resource-description", "{desc}" }
+                                        }
+                                        if let Some(annotations) = &resource.annotations {
+                                            div { class: "resource-annotations",
+                                                h4 { class: "annotations-title", "Annotations" }
+                                                pre { class: "annotations-content", 
+                                                    "{annotations:?}" 
                                                 }
                                             }
                                         }
@@ -314,24 +710,92 @@ fn McpDemo() -> Element {
                             }
                         }
                     }
+                }
 
-                    if *show_tools.read() {
-                        div { class: "results-container",
-                            if tools.read().is_empty() {
-                                div { class: "empty-state", "No tools found" }
-                            } else {
-                                div { class: "tools-grid",
-                                    for tool in tools.read().iter() {
-                                        div { 
-                                            key: format!("tool-{}", &tool.name),
-                                            class: "tool-card",
-                                            h3 { class: "tool-name", "{tool.name}" }
-                                            p { class: "tool-description", "{tool.description}" }
-                                            div { class: "tool-parameters",
-                                                h4 { "Parameters" }
-                                                pre { class: "schema",
-                                                    "{tool.input_schema}"
+                // Tools section
+                div { class: if *active_section.read() == "tools" { "content-section active" } else { "content-section" },
+                    div { class: "section-header",
+                        h1 { class: "section-title", "MCP Tools" }
+                        p { class: "section-description", "Discover available tools in the MCP server" }
+                    }
+
+                    div { class: "tools-container",
+                        if tools.read().is_empty() {
+                            div { class: "empty-state",
+                                svg {
+                                    class: "empty-icon",
+                                    xmlns: "http://www.w3.org/2000/svg",
+                                    width: "48",
+                                    height: "48",
+                                    view_box: "0 0 24 24",
+                                    fill: "none",
+                                    stroke: "currentColor",
+                                    stroke_width: "1",
+                                    stroke_linecap: "round",
+                                    stroke_linejoin: "round",
+                                    path {
+                                        d: "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
+                                    }
+                                }
+                                div { class: "empty-title", "No Tools Found" }
+                                div { class: "empty-message", "There are currently no tools available in the MCP server." }
+                                button {
+                                    class: "reload-button",
+                                    onclick: move |_| list_tools(()),
+                                    svg {
+                                        class: "button-icon",
+                                        xmlns: "http://www.w3.org/2000/svg",
+                                        width: "16",
+                                        height: "16",
+                                        view_box: "0 0 24 24",
+                                        fill: "none",
+                                        stroke: "currentColor",
+                                        stroke_width: "2",
+                                        stroke_linecap: "round",
+                                        stroke_linejoin: "round",
+                                        path {
+                                            d: "M23 4v6h-6"
+                                        }
+                                        path {
+                                            d: "M1 20v-6h6"
+                                        }
+                                        path {
+                                            d: "M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"
+                                        }
+                                    }
+                                    "Reload Tools"
+                                }
+                            }
+                        } else {
+                            div { class: "tools-grid",
+                                for tool in tools.read().iter() {
+                                    div {
+                                        key: format!("tool-{}", &tool.name),
+                                        class: "tool-card",
+                                        div { class: "tool-header",
+                                            div { class: "tool-icon",
+                                                svg {
+                                                    xmlns: "http://www.w3.org/2000/svg",
+                                                    width: "20",
+                                                    height: "20",
+                                                    view_box: "0 0 24 24",
+                                                    fill: "none",
+                                                    stroke: "currentColor",
+                                                    stroke_width: "2",
+                                                    stroke_linecap: "round",
+                                                    stroke_linejoin: "round",
+                                                    path {
+                                                        d: "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
+                                                    }
                                                 }
+                                            }
+                                            h3 { class: "tool-name", "{tool.name}" }
+                                        }
+                                        p { class: "tool-description", "{tool.description}" }
+                                        div { class: "tool-schema",
+                                            h4 { class: "schema-title", "Parameters" }
+                                            pre { class: "schema-content", 
+                                                "{tool.input_schema}" 
                                             }
                                         }
                                     }
@@ -343,205 +807,6 @@ fn McpDemo() -> Element {
             }
         }
 
-        style { {get_styles()} }
-    }
-}
 
-// Add this function to provide the styles
-fn get_styles() -> &'static str {
-    r#"
-    .app-container {
-        display: flex;
-        height: 100vh;
-        background-color: #f8f9fa;
     }
-
-    .sidebar {
-        width: 280px;
-        background-color: #2c3e50;
-        color: white;
-        padding: 24px;
-        display: flex;
-        flex-direction: column;
-        gap: 24px;
-    }
-
-    .app-title {
-        font-size: 24px;
-        font-weight: 600;
-        margin-bottom: 24px;
-        color: #ecf0f1;
-    }
-
-    .server-status {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 12px;
-        background-color: rgba(255, 255, 255, 0.1);
-        border-radius: 8px;
-    }
-
-    .status-indicator {
-        width: 12px;
-        height: 12px;
-        border-radius: 50%;
-    }
-
-    .status-indicator.online { background-color: #2ecc71; }
-    .status-indicator.offline { background-color: #95a5a6; }
-    .status-indicator.error { background-color: #e74c3c; }
-
-    .server-controls {
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-    }
-
-    .control-button {
-        padding: 12px;
-        border-radius: 8px;
-        border: none;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.2s;
-    }
-
-    .control-button.start {
-        background-color: #2ecc71;
-        color: white;
-    }
-
-    .control-button.stop {
-        background-color: #e74c3c;
-        color: white;
-    }
-
-    .control-button:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-
-    .main-content {
-        flex: 1;
-        padding: 24px;
-        overflow-y: auto;
-    }
-
-    .tools-panel {
-        background-color: white;
-        border-radius: 12px;
-        padding: 24px;
-        margin-bottom: 24px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
-
-    .tool-buttons {
-        display: flex;
-        gap: 12px;
-        margin-top: 16px;
-    }
-
-    .tool-button {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 12px 16px;
-        border-radius: 8px;
-        border: 1px solid #e9ecef;
-        background-color: white;
-        color: #2c3e50;
-        cursor: pointer;
-        transition: all 0.2s;
-    }
-
-    .tool-button:hover:not(:disabled) {
-        background-color: #f8f9fa;
-        border-color: #dee2e6;
-    }
-
-    .tool-button:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
-
-    .results-section {
-        background-color: white;
-        border-radius: 12px;
-        padding: 24px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
-
-    .resource-grid, .tools-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-        gap: 20px;
-        margin-top: 20px;
-    }
-
-    .resource-card, .tool-card {
-        background-color: #f8f9fa;
-        border-radius: 8px;
-        padding: 16px;
-        border: 1px solid #e9ecef;
-    }
-
-    .resource-name, .tool-name {
-        font-size: 18px;
-        font-weight: 600;
-        margin-bottom: 8px;
-        color: #2c3e50;
-    }
-
-    .resource-description, .tool-description {
-        color: #6c757d;
-        margin-bottom: 16px;
-        line-height: 1.5;
-    }
-
-    .error-message {
-        background-color: rgba(231, 76, 60, 0.1);
-        border-left: 4px solid #e74c3c;
-        padding: 12px;
-        border-radius: 4px;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-
-    .error-icon {
-        color: #e74c3c;
-    }
-
-    .empty-state {
-        text-align: center;
-        padding: 48px;
-        color: #6c757d;
-        font-style: italic;
-    }
-
-    pre {
-        background-color: #f1f3f5;
-        padding: 12px;
-        border-radius: 4px;
-        font-family: monospace;
-        font-size: 14px;
-        overflow-x: auto;
-        margin-top: 8px;
-    }
-
-    h2 {
-        font-size: 20px;
-        font-weight: 600;
-        color: #2c3e50;
-        margin-bottom: 16px;
-    }
-
-    h4 {
-        font-size: 16px;
-        font-weight: 600;
-        color: #2c3e50;
-        margin-bottom: 8px;
-    }
-    "#
 }

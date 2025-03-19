@@ -1,21 +1,22 @@
 [application]
 
 [web.app]
-
 # HTML title tag content
-title = "m-desk-new"
+title = "mDesk"
 
 # include `assets` in web platform
 [web.resource]
-
 # Additional CSS style files
-style = []
+style = ["mdesk.css"]
 
 # Additional JavaScript files
 script = []
 
 [web.resource.dev]
-
 # Javascript code file
 # serve: [dev-server] only
 script = []
+
+[application.tools]
+# Path to tailwindcss CLI. Only needed for the tailwindcss feature
+tailwindcss = "tailwindcss"
