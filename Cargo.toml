@@ -23,6 +23,7 @@ dotenv = "0.15"
 anymap = "0.12"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.4", features = ["v4", "serde"] }
+regex = "1.10.2"
 
 [features]
 default = ["desktop"]

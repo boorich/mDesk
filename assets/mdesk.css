@@ -927,3 +927,186 @@ html, body {
 ::-webkit-scrollbar-thumb:hover {
     background: rgba(0,0,0,0.3);
 }
+
+/* Tool Suggestion */
+.tool-suggestion {
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 16px;
+    margin: 16px 0;
+    background-color: #f9f9f9;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.tool-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.tool-icon {
+    margin-right: 10px;
+    color: #0056b3;
+}
+
+.tool-name {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0;
+    color: #333;
+}
+
+.tool-description {
+    margin: 8px 0 16px;
+    color: #555;
+    font-size: 14px;
+}
+
+.tool-args {
+    background-color: #f0f0f0;
+    border-radius: 4px;
+    padding: 12px;
+    margin-bottom: 16px;
+}
+
+.tool-args h4 {
+    margin-top: 0;
+    margin-bottom: 8px;
+    font-size: 14px;
+    color: #555;
+}
+
+.tool-args pre {
+    margin: 0;
+    font-family: monospace;
+    font-size: 13px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: #333;
+}
+
+.tool-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.btn-cancel {
+    background-color: #f5f5f5;
+    color: #333;
+    border: 1px solid #ddd;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s;
+}
+
+.btn-cancel:hover {
+    background-color: #e0e0e0;
+}
+
+.btn-execute {
+    background-color: #0056b3;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s;
+}
+
+.btn-execute:hover {
+    background-color: #004494;
+}
+
+/* Tool Execution */
+.tool-execution {
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 16px;
+    margin: 16px 0;
+    background-color: #fafafa;
+}
+
+.execution-header {
+    margin-bottom: 12px;
+}
+
+.status {
+    display: flex;
+    align-items: center;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.status.running {
+    color: #0056b3;
+}
+
+.status.completed {
+    color: #2e7d32;
+}
+
+.status.failed {
+    color: #d32f2f;
+}
+
+.spinner {
+    width: 16px;
+    height: 16px;
+    margin-right: 8px;
+    border: 2px solid rgba(0, 86, 179, 0.3);
+    border-top: 2px solid #0056b3;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.status svg {
+    margin-right: 8px;
+}
+
+.result-content {
+    background-color: #f0f0f0;
+    border-radius: 4px;
+    padding: 12px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.result-content pre {
+    margin: 0;
+    font-family: monospace;
+    font-size: 13px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: #333;
+}
+
+/* Tool Message */
+.message.tool-message {
+    background-color: #f5f5ff;
+    border-left: 4px solid #5d6dc3;
+}
+
+.tool-message-avatar {
+    background-color: #5d6dc3;
+    color: white;
+}
+
+.tool-message .message-sender {
+    color: #5d6dc3;
+    font-weight: 600;
+}
+
+/* Additional animation for the spinner */
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}

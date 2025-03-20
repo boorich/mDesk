@@ -2756,6 +2756,7 @@ dependencies = [
  "futures",
  "mcp-client",
  "mcp-core",
+ "regex",
  "reqwest 0.11.27",
  "serde",
  "serde_json",

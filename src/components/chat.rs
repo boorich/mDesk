@@ -225,7 +225,7 @@ pub fn ChatTab(
             eprintln!("Fetching MCP tools synchronously for ChatTab");
             
             // We need to run this in a blocking context
-            let tools_clone = tools.clone();
+            let mut tools_clone = tools.clone();
             let mcp_clone = mcp_state.clone();
             
             // Create a oneshot channel to get the result back
