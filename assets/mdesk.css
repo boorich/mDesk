@@ -1524,3 +1524,31 @@ textarea.form-control {
     border-radius: var(--border-radius);
     margin-bottom: 1rem;
 }
+
+/* Content section */
+.content-section {
+    padding: 2rem;
+    display: none;
+}
+
+.content-section.active {
+    display: block;
+}
+
+.section-header {
+    margin-bottom: 2rem;
+}
+
+.section-title {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--text-color);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.section-description {
+    color: var(--text-color-light);
+    margin-top: 0.5rem;
+    font-size: 1.1rem;
+}
