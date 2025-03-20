@@ -60,11 +60,105 @@ pub struct ModelListResponse {
     pub data: Vec<ModelInfo>,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone, PartialEq)]
 pub struct ModelInfo {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
+    pub context_length: Option<usize>,
+    pub pricing: Option<ModelPricing>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModelPricing {
+    pub prompt: Option<f64>,
+    pub completion: Option<f64>,
+}
+
+// Custom deserialization for ModelPricing to handle both string and numeric values
+impl<'de> serde::Deserialize<'de> for ModelPricing {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Helper {
+            #[serde(default, deserialize_with = "deserialize_string_or_number")]
+            prompt: Option<f64>,
+            #[serde(default, deserialize_with = "deserialize_string_or_number")]
+            completion: Option<f64>,
+        }
+
+        let helper = Helper::deserialize(deserializer)?;
+        Ok(ModelPricing {
+            prompt: helper.prompt,
+            completion: helper.completion,
+        })
+    }
+}
+
+// Helper function to deserialize strings or numbers into f64
+fn deserialize_string_or_number<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct StringOrNumberVisitor;
+
+    impl<'de> serde::de::Visitor<'de> for StringOrNumberVisitor {
+        type Value = Option<f64>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a string or number")
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            match value.parse::<f64>() {
+                Ok(num) => Ok(Some(num)),
+                Err(_) => {
+                    // For strings like "0", "0.0" etc.
+                    if value == "0" || value == "0.0" {
+                        Ok(Some(0.0))
+                    } else {
+                        // For other unparseable strings, just return None
+                        Ok(None)
+                    }
+                }
+            }
+        }
+
+        fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(Some(value))
+        }
+
+        fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(Some(value as f64))
+        }
+
+        fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(Some(value as f64))
+        }
+        
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(None)
+        }
+    }
+
+    deserializer.deserialize_any(StringOrNumberVisitor)
 }
 
 // Custom error type for OpenRouter client
@@ -176,8 +270,45 @@ impl OpenRouterClient {
             });
         }
         
-        let models: ModelListResponse = response.json().await?;
-        Ok(models.data)
+        // Get the raw response body as a string first for debugging
+        let body_text = response.text().await?;
+        
+        // Try to parse the JSON response
+        match serde_json::from_str::<ModelListResponse>(&body_text) {
+            Ok(models) => Ok(models.data),
+            Err(e) => {
+                // Log the error with more context
+                eprintln!("JSON deserialization error: {} in response: {}", e, body_text);
+                
+                // Try to extract just the model IDs and names as a fallback
+                let fallback_result = serde_json::from_str::<serde_json::Value>(&body_text);
+                if let Ok(value) = fallback_result {
+                    if let Some(data) = value.get("data").and_then(|d| d.as_array()) {
+                        let fallback_models = data.iter()
+                            .filter_map(|item| {
+                                let id = item.get("id")?.as_str()?.to_string();
+                                let name = item.get("name")?.as_str()?.to_string();
+                                Some(ModelInfo {
+                                    id,
+                                    name,
+                                    description: None,
+                                    context_length: None,
+                                    pricing: None,
+                                })
+                            })
+                            .collect::<Vec<_>>();
+                        
+                        if !fallback_models.is_empty() {
+                            eprintln!("Using fallback model parsing, recovered {} models", fallback_models.len());
+                            return Ok(fallback_models);
+                        }
+                    }
+                }
+                
+                // Failed to parse with fallback approach too, return a custom error
+                Err(OpenRouterError::Unknown(format!("JSON deserialization error: {}", e)))
+            }
+        }
     }
 }
 

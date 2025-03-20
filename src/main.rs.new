@@ -1,0 +1,65 @@
+use dioxus::prelude::*;
+use mcp_client::{
+    ClientCapabilities, ClientInfo, Error as McpError, McpClient, McpClientTrait, McpService,
+    transport::stdio::{StdioTransport, StdioTransportHandle},
+    Transport,
+};
+use mcp_core::{protocol::JsonRpcMessage, Resource as McpResource, Tool};
+use std::{collections::HashMap, sync::Arc, time::Duration, env};
+use tokio::sync::Mutex;
+use tower::{timeout::Timeout, ServiceExt};
+use serde_json::Value;
+use dotenv::dotenv;
+
+mod components;
+mod openrouter;
+
+use components::ChatTab;
+
+// Load environment variables from .env file if it exists
+fn load_env() {
+    match dotenv() {
+        Ok(_) => eprintln!("Loaded environment from .env file"),
+        Err(_) => eprintln!("No .env file found, using default environment"),
+    }
+}
+
+#[derive(Debug, Clone, Routable, PartialEq)]
+#[rustfmt::skip]
+enum Route {
+    #[route("/")]
+    McpDemo {},
+}
+
+const FAVICON: Asset = asset!("/assets/favicon.ico");
+const MAIN_CSS: Asset = asset!("/assets/main.css");
+const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
+const MDESK_CSS: Asset = asset!("/assets/mdesk.css");
+
+fn main() {
+    // Load environment variables
+    load_env();
+    
+    // Launch the app
+    dioxus::launch(App);
+}
+
+#[component]
+fn App() -> Element {
+    rsx! {
+        document::Link { rel: "icon", href: FAVICON }
+        document::Link { rel: "stylesheet", href: MAIN_CSS }
+        document::Link { rel: "stylesheet", href: TAILWIND_CSS }
+        document::Link { rel: "stylesheet", href: MDESK_CSS }
+        Router::<Route> {}
+    }
+}
+
+#[derive(Clone)]
+struct McpState {
+    client: Option<Arc<Mutex<McpClient<Timeout<McpService<StdioTransportHandle>>>>>>,
+}
+
+/// MCP Demo page with real client implementation
+#[component]
+fn McpDemo() -> Element {

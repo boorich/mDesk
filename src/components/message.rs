@@ -155,13 +155,22 @@ pub fn MessageView(message: Message) -> Element {
         },
     };
     
+    let message_sender = match message.role {
+        MessageRole::User => "You",
+        MessageRole::Assistant => "Assistant",
+        MessageRole::System => "System",
+        MessageRole::Thinking => "Thinking...",
+    };
+    
+    let timestamp_str = message.timestamp.format("%H:%M").to_string();
+    
     rsx! {
         div {
-            class: "message {role_class}",
+            class: format!("message {}", role_class),
             div {
                 class: "message-avatar",
                 div {
-                    class: "avatar-icon {role_class}-avatar",
+                    class: format!("avatar-icon {}-avatar", role_class),
                     {avatar_icon}
                 }
             }
@@ -171,28 +180,21 @@ pub fn MessageView(message: Message) -> Element {
                     class: "message-header",
                     div {
                         class: "message-sender",
-                        match message.role {
-                            MessageRole::User => "You",
-                            MessageRole::Assistant => "Assistant",
-                            MessageRole::System => "System",
-                            MessageRole::Thinking => "Thinking..."
-                        }
+                        {message_sender}
                     }
                     div {
                         class: "message-time",
-                        "{message.timestamp.format(\"%H:%M\")}"
+                        {timestamp_str}
                     }
                 }
                 div {
                     class: "message-text",
                     if message.role == MessageRole::Thinking {
-                        rsx! {
-                            div {
-                                class: "typing-indicator",
-                                div { class: "dot" }
-                                div { class: "dot" }
-                                div { class: "dot" }
-                            }
+                        div {
+                            class: "typing-indicator",
+                            div { class: "dot" }
+                            div { class: "dot" }
+                            div { class: "dot" }
                         }
                     } else {
                         // Split by newlines and render paragraphs
@@ -201,7 +203,7 @@ pub fn MessageView(message: Message) -> Element {
                                 rsx! {
                                     p { 
                                         class: "message-paragraph",
-                                        "{paragraph}" 
+                                        {paragraph}
                                     }
                                 }
                             } else {
