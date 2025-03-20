@@ -69,7 +69,7 @@ fn McpDemo() -> Element {
     let mut show_tools = use_signal(|| false);
     let mut resources = use_signal(Vec::<McpResource>::new);
     let mut tools = use_signal(Vec::<Tool>::new);
-    let mut active_section = use_signal(|| "home");
+    let mut active_section = use_signal(|| "chat");
     
     let mut mcp_state = use_signal(|| McpState { client: None });
     
@@ -253,6 +253,27 @@ fn McpDemo() -> Element {
                     div { class: "section-header", "Navigation" }
                     
                     button {
+                        class: if *active_section.read() == "chat" { "nav-item active" } else { "nav-item" },
+                        onclick: set_section("chat"),
+                        svg {
+                            class: "nav-icon",
+                            xmlns: "http://www.w3.org/2000/svg",
+                            width: "20",
+                            height: "20",
+                            view_box: "0 0 24 24",
+                            fill: "none",
+                            stroke: "currentColor",
+                            stroke_width: "2",
+                            stroke_linecap: "round",
+                            stroke_linejoin: "round",
+                            path {
+                                d: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+                            }
+                        }
+                        span { "Chat" }
+                    }
+
+                    /*button {
                         class: if *active_section.read() == "home" { "nav-item active" } else { "nav-item" },
                         onclick: set_section("home"),
                         svg {
@@ -271,7 +292,7 @@ fn McpDemo() -> Element {
                             }
                         }
                         span { "Home" }
-                    }
+                    }*/
                     
                     button {
                         class: if *active_section.read() == "resources" { "nav-item active" } else { "nav-item" },
@@ -326,26 +347,6 @@ fn McpDemo() -> Element {
                         span { "Tools" }
                     }
                     
-                    button {
-                        class: if *active_section.read() == "chat" { "nav-item active" } else { "nav-item" },
-                        onclick: set_section("chat"),
-                        svg {
-                            class: "nav-icon",
-                            xmlns: "http://www.w3.org/2000/svg",
-                            width: "20",
-                            height: "20",
-                            view_box: "0 0 24 24",
-                            fill: "none",
-                            stroke: "currentColor",
-                            stroke_width: "2",
-                            stroke_linecap: "round",
-                            stroke_linejoin: "round",
-                            path {
-                                d: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
-                            }
-                        }
-                        span { "Chat" }
-                    }
                 }
 
                 div { class: "sidebar-section",
