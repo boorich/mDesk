@@ -3,6 +3,7 @@ use crate::openrouter::{OpenRouterClient, ChatMessage, ModelInfo};
 use crate::components::message::{Message, MessageRole, MessageView};
 use std::env;
 use mcp_core::Tool;
+use mcp_client::McpClientTrait;
 use crate::components::tool_manager::{ToolManager, ToolInteraction};
 use crate::components::tool_suggestion::ToolExecutionStatus;
 use crate::McpState;
