@@ -51,10 +51,10 @@ pub fn ChatTab(
         mcp_tools
     });
     
-    // Debug MCP state
+    // Debug MCP state and try to preload tools immediately if possible
     eprintln!("ChatTab received MCP client state: {}", if mcp_state.read().client.is_some() { "Client available" } else { "No client available" });
     
-    // Try to preload tools immediately if possible
+    // Preload tools if we don't have any and the MCP client is available
     if tools.read().is_empty() && mcp_state.read().client.is_some() {
         eprintln!("Preloading tools during ChatTab initialization");
         let tools_clone = tools.clone();
