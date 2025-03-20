@@ -19,6 +19,24 @@
       "env": {},
       "description": "Default filesystem MCP provider",
       "is_default": true
+    },
+    {
+      "id": "Sqlite",
+      "name": "Sqlite MCP Server",
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "-v",
+        "mcp-test:/mcp",
+        "mcp/sqlite",
+        "--db-path",
+        "/mcp/test.db"
+      ],
+      "env": {},
+      "description": null,
+      "is_default": false
     }
   ]
 }
