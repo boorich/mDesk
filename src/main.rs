@@ -161,6 +161,12 @@ fn McpDemo() -> Element {
             show_tools.set(false);
             active_section.set("resources");
             
+            // Debug log the tools before passing them to the chat
+            eprintln!("Tools available in main.rs before passing to ChatTab: {}", tools.read().len());
+            for tool in tools.read().iter() {
+                eprintln!("  - Available Tool: {} ({})", tool.name, tool.description);
+            }
+            
             spawn({
                 to_owned![client, client_status, error_message, resources];
                 async move {
@@ -864,10 +870,24 @@ fn McpDemo() -> Element {
                         p { class: "section-description", "Interact with AI models via OpenRouter" }
                     }
 
+                    // Make sure to list tools first if we're in chat section
+                    // This ensures the tools are loaded when chat is opened
+                    if tools.read().is_empty() && mcp_state.read().client.is_some() {
+                        eprintln!("Tools not loaded yet, loading them for chat");
+                        list_tools(());
+                    }
+                    
+                    // Debug log the tool list again
+                    eprintln!("Sending {} tools to ChatTab", tools.read().len());
+                    for tool in tools.read().iter() {
+                        eprintln!("  - Sending Tool to ChatTab: {} ({})", tool.name, tool.description);
+                    }
+
                     // Chat component
                     ChatTab {
                         mcp_tools: tools.read().to_vec(),
                         api_key: openrouter_api_key.clone(),
+                        mcp_state: mcp_state.clone(),
                     }
                 }
             }

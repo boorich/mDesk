@@ -236,11 +236,12 @@ pub fn ChatTab(
                     }
                     
                     // Much more explicit instructions for the model
-                    system_message.push_str("\nIMPORTANT: When you need to use a tool, you MUST use this exact format:\n");
-                    system_message.push_str("\"I need to use the [tool_name] tool with arguments {\\\"param\\\": \\\"value\\\"}\"\n");
-                    system_message.push_str("For example: \"I need to use the read_file tool with arguments {\\\"path\\\": \\\"/path/to/file.txt\\\"}\"\n");
-                    system_message.push_str("The user will then approve or deny the tool usage. Do not attempt to use tools any other way.\n");
-                    system_message.push_str("If you think a tool might be helpful, always suggest using it with the exact format above.");
+                    system_message.push_str("\nIMPORTANT: When you need to use a tool, simply mention the tool by name.\n");
+                    system_message.push_str("For example, if you want to read a file, say something like:\n");
+                    system_message.push_str("\"I can read that file using the read_file tool with this path: {\\\"path\\\": \\\"/path/to/file.txt\\\"}\"\n");
+                    system_message.push_str("Or even just something like \"Let me check that with the read_file tool\"\n");
+                    system_message.push_str("The system will detect your desire to use the tool, and the user will approve or deny the tool usage.\n");
+                    system_message.push_str("If it's helpful, always suggest using one of the available tools to help the user.");
                 }
                 
                 // Add system message to beginning of chat history

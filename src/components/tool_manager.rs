@@ -36,8 +36,41 @@ impl ToolManager {
         eprintln!("Checking for tool suggestions in message: {}", message);
         
         // Look for tool suggestions in the message
-        // More flexible pattern to catch various ways the model might express tool usage
-        let tool_regex = Regex::new(r"(?:I need to use|I want to use|Let me use|I'll use|Using) the (?P<tool_name>[a-zA-Z0-9_]+) tool").ok()?;
+        // Extract potential tool names directly - much more flexible approach
+        let available_tool_names: Vec<&str> = available_tools.iter().map(|t| t.name.as_str()).collect();
+        eprintln!("Available tool names: {:?}", available_tool_names);
+        
+        // First, try to find an exact format match
+        let tool_regex = Regex::new(r"I need to use the (?P<tool_name>[a-zA-Z0-9_]+) tool").ok()?;
+        
+        // If we don't find an exact match, search for any mention of available tool names
+        if tool_regex.captures(message).is_none() {
+            eprintln!("Exact pattern not found, looking for any mention of tools");
+            
+            // Look for any mention of an available tool
+            for &tool_name in &available_tool_names {
+                if message.contains(&format!("{} tool", tool_name)) {
+                    eprintln!("Found mention of {} tool", tool_name);
+                    
+                    // Check if there are parameters mentioned
+                    let args_regex = Regex::new(r"\{[\s\S]*?\}").ok()?;
+                    if let Some(args_match) = args_regex.find(message) {
+                        let args_str = args_match.as_str();
+                        eprintln!("Found JSON parameters: {}", args_str);
+                        
+                        match serde_json::from_str::<Value>(args_str) {
+                            Ok(args) => return Some((tool_name.to_string(), args)),
+                            Err(e) => eprintln!("Failed to parse JSON: {}", e)
+                        }
+                    }
+                    
+                    // If we found a tool mention but no parameters, treat it as a tool suggestion
+                    // with empty parameters
+                    eprintln!("Tool mention found but no parameters, using empty object");
+                    return Some((tool_name.to_string(), json!({})));
+                }
+            }
+        }
         
         if let Some(captures) = tool_regex.captures(message) {
             eprintln!("Regex matched! Extracting tool name");
@@ -98,11 +131,28 @@ impl ToolManager {
         arguments: Value,
         mcp_state: &McpState,
     ) -> Result<CallToolResult, McpError> {
-        let client = mcp_state.client.as_ref()
-            .ok_or(McpError::NotInitialized)?;
+        eprintln!("Executing tool: {} with arguments: {}", tool_name, arguments);
         
+        let client = mcp_state.client.as_ref()
+            .ok_or_else(|| {
+                eprintln!("MCP client not initialized");
+                McpError::NotInitialized
+            })?;
+        
+        eprintln!("Got MCP client, acquiring lock");
         let client = client.lock().await;
-        client.call_tool(&tool_name, arguments).await
+        eprintln!("Lock acquired, calling tool");
+        
+        match client.call_tool(&tool_name, arguments).await {
+            Ok(result) => {
+                eprintln!("Tool execution successful: {}", tool_name);
+                Ok(result)
+            }
+            Err(e) => {
+                eprintln!("Tool execution failed: {} - Error: {}", tool_name, e);
+                Err(e)
+            }
+        }
     }
     
     /// Process a tool result into readable text
