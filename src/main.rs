@@ -870,24 +870,34 @@ fn McpDemo() -> Element {
                         p { class: "section-description", "Interact with AI models via OpenRouter" }
                     }
 
-                    // Make sure to list tools first if we're in chat section
-                    // This ensures the tools are loaded when chat is opened
-                    if tools.read().is_empty() && mcp_state.read().client.is_some() {
-                        eprintln!("Tools not loaded yet, loading them for chat");
-                        list_tools(());
-                    }
-                    
-                    // Debug log the tool list again
-                    eprintln!("Sending {} tools to ChatTab", tools.read().len());
-                    for tool in tools.read().iter() {
-                        eprintln!("  - Sending Tool to ChatTab: {} ({})", tool.name, tool.description);
-                    }
-
-                    // Chat component
-                    ChatTab {
-                        mcp_tools: tools.read().to_vec(),
-                        api_key: openrouter_api_key.clone(),
-                        mcp_state: mcp_state.clone(),
+                    // Load tools if needed and show chat component
+                    {
+                        // Ensure we fetch tools before rendering the chat tab if needed
+                        if tools.read().is_empty() && mcp_state.read().client.is_some() {
+                            eprintln!("Tools not loaded yet, fetching them for chat");
+                            
+                            // Load tools 
+                            list_tools(());
+                            
+                            // Give a short wait for tools to update
+                            eprintln!("Waiting for tools to load...");
+                            std::thread::sleep(std::time::Duration::from_millis(100));
+                        }
+                        
+                        // Debug logs
+                        eprintln!("Sending {} tools to ChatTab", tools.read().len());
+                        for tool in tools.read().iter() {
+                            eprintln!("  - Sending Tool to ChatTab: {} ({})", tool.name, tool.description);
+                        }
+                        
+                        // Render ChatTab component
+                        rsx! {
+                            ChatTab {
+                                mcp_tools: tools.read().to_vec(),
+                                api_key: openrouter_api_key.clone(),
+                                mcp_state: mcp_state.clone(),
+                            }
+                        }
                     }
                 }
             }

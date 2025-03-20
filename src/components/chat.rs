@@ -53,6 +53,31 @@ pub fn ChatTab(
     // Debug MCP state
     eprintln!("ChatTab received MCP client state: {}", if mcp_state.read().client.is_some() { "Client available" } else { "No client available" });
     
+    // Try to preload tools immediately if possible
+    if tools.read().is_empty() && mcp_state.read().client.is_some() {
+        eprintln!("Preloading tools during ChatTab initialization");
+        let tools_clone = tools.clone();
+        let mcp_clone = mcp_state.clone();
+        
+        spawn({
+            to_owned![tools_clone, mcp_clone];
+            async move {
+                if let Some(client_arc) = &mcp_clone.read().client {
+                    let client = client_arc.lock().await;
+                    match client.list_tools(None).await {
+                        Ok(result) => {
+                            eprintln!("Successfully preloaded {} tools during initialization", result.tools.len());
+                            tools_clone.set(result.tools);
+                        }
+                        Err(e) => {
+                            eprintln!("Error preloading tools: {}", e);
+                        }
+                    }
+                }
+            }
+        });
+    }
+    
     // OpenRouter client setup
     let openrouter_api_key = match api_key {
         Some(key) => key,
@@ -193,6 +218,48 @@ pub fn ChatTab(
     // Add tool-related state
     let mut active_tool: Option<(String, Value)> = None;
     
+    // Function to fetch MCP tools synchronously
+    let fetch_tools_sync = move || {
+        if mcp_state.read().client.is_some() {
+            eprintln!("Fetching MCP tools synchronously for ChatTab");
+            
+            // We need to run this in a blocking context
+            let tools_clone = tools.clone();
+            let mcp_clone = mcp_state.clone();
+            
+            // Create a oneshot channel to get the result back
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            
+            spawn(async move {
+                if let Some(client_arc) = &mcp_clone.read().client {
+                    let client = client_arc.lock().await;
+                    match client.list_tools(None).await {
+                        Ok(result) => {
+                            eprintln!("Successfully fetched {} tools", result.tools.len());
+                            tools_clone.set(result.tools.clone());
+                            let _ = tx.send(result.tools);
+                        }
+                        Err(e) => {
+                            eprintln!("Error fetching tools: {}", e);
+                            let _ = tx.send(Vec::new());
+                        }
+                    }
+                } else {
+                    let _ = tx.send(Vec::new());
+                }
+            });
+            
+            // Wait a short time for tools to load
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            
+            // Return whatever we got
+            return tools.read().clone();
+        }
+        
+        // Return empty list if no client
+        return Vec::new();
+    };
+    
     // Modify send_message function to add tool suggestion detection
     let mut send_message = move |_| {
         let user_input = input.read().trim().to_string();
@@ -219,7 +286,17 @@ pub fn ChatTab(
         // Get selected model
         let selected_model = model_selection.read().selected_model.clone();
         let client_instance = client.read().clone();
-        let tools_clone = tools.read().clone();
+        
+        // Check if we have tools available, if not try to fetch them
+        let tools_clone = if tools.read().is_empty() && mcp_state.read().client.is_some() {
+            eprintln!("No tools available, fetching them before processing message");
+            fetch_tools_sync() // This will ensure we have tools before proceeding
+        } else {
+            tools.read().clone()
+        };
+        
+        // Log the tools we have
+        eprintln!("Processing message with {} tools available", tools_clone.len());
         
         spawn({
             to_owned![messages, is_sending, user_input, mcp_state];
