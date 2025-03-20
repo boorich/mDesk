@@ -15,22 +15,22 @@ This document outlines the next steps for developing mDesk, a native desktop app
     - [ ] Create test scenarios for MCP server operations
 
 ### 2. Chat Interface & OpenRouter Integration
-- [ ] Create a new tab in the UI for a Chat Interface
-  - [ ] Design and implement a modern chat window UI
-  - [ ] Add message history component with proper styling
-  - [ ] Create input area with send button and keyboard shortcuts
-- [ ] Implement OpenRouter API integration
-  - [ ] Create API client for OpenRouter
-  - [ ] Add model selection dropdown with available LLMs
+- [x] Create a new tab in the UI for a Chat Interface
+  - [x] Design and implement a modern chat window UI
+  - [x] Add message history component with proper styling
+  - [x] Create input area with send button and keyboard shortcuts
+- [x] Implement OpenRouter API integration
+  - [x] Create API client for OpenRouter
+  - [x] Add model selection dropdown with available LLMs
   - [ ] Implement token tracking and usage monitoring
-- [ ] Develop tool selection algorithm
-  - [ ] Create logic to analyze user queries
-  - [ ] Implement tool selection based on query intent
-  - [ ] Add capability to chain multiple tools as needed
+- [x] Develop tool selection algorithm
+  - [x] Create logic to analyze user queries
+  - [x] Implement tool selection based on query intent
+  - [x] Add capability to chain multiple tools as needed
 
 ### 3. MCP Integration Improvements
-- [ ] Enhance error handling for MCP client connections
-- [ ] Implement proper loading states during MCP operations
+- [x] Enhance error handling for MCP client connections
+- [x] Implement proper loading states during MCP operations
 - [ ] Add persistent storage for MCP connection settings
 - [ ] Create a configuration panel for customizing MCP server settings
 

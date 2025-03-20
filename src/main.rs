@@ -13,8 +13,11 @@ use dotenv::dotenv;
 
 mod components;
 mod openrouter;
+mod server_config;
 
 use components::ChatTab;
+use components::server_manager::ServerManager;
+use server_config::ServerConfig;
 
 // Load environment variables from .env file if it exists
 fn load_env() {
@@ -58,6 +61,7 @@ fn App() -> Element {
 #[derive(Clone)]
 struct McpState {
     client: Option<Arc<Mutex<McpClient<Timeout<McpService<StdioTransportHandle>>>>>>,
+    selected_server: Option<ServerConfig>,
 }
 
 /// MCP Demo page with real client implementation
@@ -71,7 +75,10 @@ fn McpDemo() -> Element {
     let mut tools = use_signal(Vec::<Tool>::new);
     let mut active_section = use_signal(|| "chat");
     
-    let mut mcp_state = use_signal(|| McpState { client: None });
+    let mut mcp_state = use_signal(|| McpState { 
+        client: None,
+        selected_server: None,
+    });
     
     // Get OpenRouter API key from environment variables
     let openrouter_api_key = env::var("OPENROUTER_API_KEY").ok();
@@ -102,21 +109,22 @@ fn McpDemo() -> Element {
         spawn({
             to_owned![mcp_state, client_status, error_message];
             async move {
+                // Determine which server configuration to use
+                let server_config = mcp_state.read().selected_server.clone().unwrap_or_else(|| {
+                    // Use the default configuration from server_config module
+                    ServerConfig::default_filesystem()
+                });
+                
+                // Log which server we're connecting to
+                eprintln!("Connecting to MCP server: {}", server_config.name);
+                
+                // Create transport with the server's configuration
+                let mut env_vars = server_config.env.clone();
+                
                 let transport = StdioTransport::new(
-                    "docker",
-                    vec![
-                        "run".to_string(),
-                        "-i".to_string(),
-                        "--rm".to_string(),
-                        "--mount".to_string(),
-                        "type=bind,src=/Users/martinmaurer/Desktop,dst=/Users/martinmaurer/Desktop".to_string(),
-                        "--mount".to_string(),
-                        "type=bind,src=/Users/martinmaurer/Projects,dst=/Users/martinmaurer/Projects".to_string(),
-                        "mcp/filesystem".to_string(),
-                        "/Users/martinmaurer/Desktop".to_string(),
-                        "/Users/martinmaurer/Projects".to_string()
-                    ],
-                    HashMap::new()
+                    &server_config.command,
+                    server_config.args.clone(),
+                    env_vars
                 );
                 
                 match transport.start().await {
@@ -132,9 +140,10 @@ fn McpDemo() -> Element {
                             ClientCapabilities::default()
                         ).await {
                             Ok(_) => {
-                                client_status.set("Connected to MCP Server v1.0".to_string());
+                                client_status.set(format!("Connected to {} (MCP v1.0)", server_config.name));
                                 mcp_state.set(McpState {
-                                    client: Some(Arc::new(Mutex::new(client)))
+                                    client: Some(Arc::new(Mutex::new(client))),
+                                    selected_server: Some(server_config),
                                 });
                             }
                             Err(e) => {
@@ -188,44 +197,68 @@ fn McpDemo() -> Element {
         }
     };
     
-    // List tools using real client
-    let mut list_tools = move |_| {
-        if let Some(client) = &mcp_state.read().client {
+    // Create a new function to load tools that can be called from multiple places
+    let mut fetch_tools = {
+        to_owned![mcp_state, client_status, error_message, tools, show_tools, show_resources];
+        move || {
+            if mcp_state.read().client.is_none() {
+                error_message.set(Some("Client not initialized".to_string()));
+                return;
+            }
+            
             client_status.set("Fetching tools...".to_string());
             error_message.set(None);
-            show_resources.set(false);
             show_tools.set(true);
-            active_section.set("tools");
+            show_resources.set(false);
             
             spawn({
-                to_owned![client, client_status, error_message, tools];
+                to_owned![mcp_state, client_status, error_message, tools];
                 async move {
-                    let client = client.lock().await;
-                    match client.list_tools(None).await {
-                        Ok(result) => {
-                            tools.set(result.tools);
-                            client_status.set("Connected to MCP Server v1.0".to_string());
-                        }
-                        Err(e) => {
-                            client_status.set("Error".to_string());
-                            error_message.set(Some(format!("Failed to list tools: {}", e)));
+                    if let Some(ref client) = mcp_state.read().client {
+                        let client_lock = client.lock().await;
+                        
+                        match client_lock.list_tools(None).await {
+                            Ok(result) => {
+                                tools.set(result.tools);
+                                client_status.set("Connected to MCP Server v1.0".to_string());
+                            }
+                            Err(e) => {
+                                client_status.set("Error".to_string());
+                                error_message.set(Some(format!("Failed to list tools: {}", e)));
+                            }
                         }
                     }
                 }
             });
-        } else {
-            error_message.set(Some("Client not initialized".to_string()));
         }
+    };
+    
+    // Wrapper function for use in UI events
+    let list_tools = {
+        let mut fetch_tools = fetch_tools.clone();
+        move |_| {
+            fetch_tools();
+        }
+    };
+    
+    // Handle server selection
+    let select_server = move |server: ServerConfig| {
+        mcp_state.write().selected_server = Some(server);
     };
 
     // Set active section
-    let set_section = move |section: &'static str| {
+    let set_section = |section: &'static str| {
+        let mut fetch_tools = fetch_tools.clone();
+        
         move |_| {
             active_section.set(section);
+            
             if section == "resources" {
                 list_resources(());
             } else if section == "tools" {
-                list_tools(());
+                fetch_tools();
+            } else if section == "servers" {
+                // No need to list resources or tools for server settings
             } else {
                 show_resources.set(false);
                 show_tools.set(false);
@@ -351,6 +384,52 @@ fn McpDemo() -> Element {
                             }
                         }
                         span { "Tools" }
+                    }
+                    
+                    button {
+                        class: if *active_section.read() == "servers" { "nav-item active" } else { "nav-item" },
+                        onclick: set_section("servers"),
+                        svg {
+                            class: "nav-icon",
+                            xmlns: "http://www.w3.org/2000/svg",
+                            width: "20",
+                            height: "20",
+                            view_box: "0 0 24 24",
+                            fill: "none",
+                            stroke: "currentColor",
+                            stroke_width: "2",
+                            stroke_linecap: "round",
+                            stroke_linejoin: "round",
+                            rect { 
+                                x: "2", 
+                                y: "2", 
+                                width: "20", 
+                                height: "8", 
+                                rx: "2", 
+                                ry: "2" 
+                            }
+                            rect { 
+                                x: "2", 
+                                y: "14", 
+                                width: "20", 
+                                height: "8", 
+                                rx: "2", 
+                                ry: "2" 
+                            }
+                            line { 
+                                x1: "6", 
+                                y1: "6", 
+                                x2: "6.01", 
+                                y2: "6" 
+                            }
+                            line { 
+                                x1: "6", 
+                                y1: "18", 
+                                x2: "6.01", 
+                                y2: "18" 
+                            }
+                        }
+                        span { "Server Settings" }
                     }
                     
                 }
@@ -799,7 +878,10 @@ fn McpDemo() -> Element {
                                 div { class: "empty-message", "There are currently no tools available in the MCP server." }
                                 button {
                                     class: "reload-button",
-                                    onclick: move |_| list_tools(()),
+                                    onclick: move |_| {
+                                        let mut list_tools_clone = list_tools.clone();
+                                        list_tools_clone(());
+                                    },
                                     svg {
                                         class: "button-icon",
                                         xmlns: "http://www.w3.org/2000/svg",
@@ -863,21 +945,35 @@ fn McpDemo() -> Element {
                     }
                 }
 
+                // Server Settings section
+                div { class: if *active_section.read() == "servers" { "content-section active" } else { "content-section" },
+                    div { class: "section-header",
+                        h1 { class: "section-title", "Server Settings" }
+                        p { class: "section-description", "Configure and manage MCP server connections" }
+                    }
+
+                    ServerManager {
+                        on_select_server: select_server,
+                        selected_id: mcp_state.read().selected_server.as_ref().map(|s| s.id.clone()),
+                    }
+                }
+
                 // Chat section
                 div { class: if *active_section.read() == "chat" { "content-section active" } else { "content-section" },
                     div { class: "section-header",
-                        h1 { class: "section-title", "Chat with AI" }
-                        p { class: "section-description", "Interact with AI models via OpenRouter" }
+                        h1 { class: "section-title", "MCP Chat" }
+                        p { class: "section-description", "Interact with AI models using MCP tools" }
                     }
-
+                    
                     // Load tools if needed and show chat component
                     {
                         // Ensure we fetch tools before rendering the chat tab if needed
                         if tools.read().is_empty() && mcp_state.read().client.is_some() {
                             eprintln!("Tools not loaded yet, fetching them for chat");
                             
-                            // Load tools 
-                            list_tools(());
+                            // Clone and call fetch_tools
+                            let mut fetch_tools_clone = fetch_tools.clone();
+                            fetch_tools_clone();
                             
                             // Give a short wait for tools to update
                             eprintln!("Waiting for tools to load...");

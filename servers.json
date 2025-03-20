@@ -1,0 +1,24 @@
+{
+  "servers": [
+    {
+      "id": "filesystem",
+      "name": "Filesystem MCP",
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "--mount",
+        "type=bind,src=/Users/martinmaurer/Desktop,dst=/Users/martinmaurer/Desktop",
+        "--mount",
+        "type=bind,src=/Users/martinmaurer/Projects,dst=/Users/martinmaurer/Projects",
+        "mcp/filesystem",
+        "/Users/martinmaurer/Desktop",
+        "/Users/martinmaurer/Projects"
+      ],
+      "env": {},
+      "description": "Default filesystem MCP provider",
+      "is_default": true
+    }
+  ]
+}
