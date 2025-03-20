@@ -36,42 +36,49 @@ impl ToolManager {
         eprintln!("Checking for tool suggestions in message: {}", message);
         
         // Look for tool suggestions in the message
+        // Log available tools with full details
+        eprintln!("Available tools count: {}", available_tools.len());
+        for tool in available_tools {
+            eprintln!("  Tool in detect_tool_suggestion: {} ({})", tool.name, tool.description);
+        }
+        
         // Extract potential tool names directly - much more flexible approach
         let available_tool_names: Vec<&str> = available_tools.iter().map(|t| t.name.as_str()).collect();
         eprintln!("Available tool names: {:?}", available_tool_names);
         
-        // First, try to find an exact format match
-        let tool_regex = Regex::new(r"I need to use the (?P<tool_name>[a-zA-Z0-9_]+) tool").ok()?;
+        // NEW APPROACH: Look for ANY tool mention with a more generic regex
+        let generic_tool_regex = Regex::new(r"([a-zA-Z0-9_]+)\s+tool").ok()?;
         
-        // If we don't find an exact match, search for any mention of available tool names
-        if tool_regex.captures(message).is_none() {
-            eprintln!("Exact pattern not found, looking for any mention of tools");
+        eprintln!("Looking for ANY tool mention with generic pattern");
+        
+        for cap in generic_tool_regex.captures_iter(message) {
+            let potential_tool = cap[1].to_string();
+            eprintln!("Found potential tool mention: {}", potential_tool);
             
-            // Look for any mention of an available tool
-            for &tool_name in &available_tool_names {
-                if message.contains(&format!("{} tool", tool_name)) {
-                    eprintln!("Found mention of {} tool", tool_name);
+            // If available_tools is empty, we'll consider ANY tool valid for testing
+            if available_tools.is_empty() || available_tool_names.contains(&potential_tool.as_str()) {
+                eprintln!("Accepting potential tool: {}", potential_tool);
+                
+                // Check if there are parameters mentioned
+                let args_regex = Regex::new(r"\{[\s\S]*?\}").ok()?;
+                if let Some(args_match) = args_regex.find(message) {
+                    let args_str = args_match.as_str();
+                    eprintln!("Found JSON parameters for {}: {}", potential_tool, args_str);
                     
-                    // Check if there are parameters mentioned
-                    let args_regex = Regex::new(r"\{[\s\S]*?\}").ok()?;
-                    if let Some(args_match) = args_regex.find(message) {
-                        let args_str = args_match.as_str();
-                        eprintln!("Found JSON parameters: {}", args_str);
-                        
-                        match serde_json::from_str::<Value>(args_str) {
-                            Ok(args) => return Some((tool_name.to_string(), args)),
-                            Err(e) => eprintln!("Failed to parse JSON: {}", e)
-                        }
+                    match serde_json::from_str::<Value>(args_str) {
+                        Ok(args) => return Some((potential_tool, args)),
+                        Err(e) => eprintln!("Failed to parse JSON: {}", e)
                     }
-                    
-                    // If we found a tool mention but no parameters, treat it as a tool suggestion
-                    // with empty parameters
-                    eprintln!("Tool mention found but no parameters, using empty object");
-                    return Some((tool_name.to_string(), json!({})));
                 }
+                
+                // Return with empty parameters
+                eprintln!("No parameters for {} tool, using empty object", potential_tool);
+                return Some((potential_tool, json!({})));
             }
         }
         
+        // Also try the original exact pattern approach
+        let tool_regex = Regex::new(r"I need to use the (?P<tool_name>[a-zA-Z0-9_]+) tool").ok()?;
         if let Some(captures) = tool_regex.captures(message) {
             eprintln!("Regex matched! Extracting tool name");
             let tool_name_opt = captures.name("tool_name");

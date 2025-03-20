@@ -229,19 +229,31 @@ pub fn ChatTab(
                 
                 // Provide tool information in the system message
                 if !tools_clone.is_empty() {
-                    system_message.push_str("The following tools are available:\n\n");
+                    system_message.push_str("IMPORTANT: You only have access to the following tools from the MCP server:\n\n");
                     for tool in &tools_clone {
                         system_message.push_str(&format!("- {}: {}\n", tool.name, tool.description));
                         system_message.push_str(&format!("  Parameters: {}\n\n", tool.input_schema));
                     }
                     
                     // Much more explicit instructions for the model
-                    system_message.push_str("\nIMPORTANT: When you need to use a tool, simply mention the tool by name.\n");
-                    system_message.push_str("For example, if you want to read a file, say something like:\n");
-                    system_message.push_str("\"I can read that file using the read_file tool with this path: {\\\"path\\\": \\\"/path/to/file.txt\\\"}\"\n");
-                    system_message.push_str("Or even just something like \"Let me check that with the read_file tool\"\n");
+                    system_message.push_str("\nWhen you need to use one of these tools, simply mention the tool by name.\n");
+                    system_message.push_str("For example, you can say something like:\n");
+                    
+                    if let Some(example_tool) = tools_clone.first() {
+                        // Use a real tool as an example
+                        system_message.push_str(&format!("\"I'll use the {} tool to help with that\"\n", example_tool.name));
+                        system_message.push_str(&format!("\"Let me try the {} tool\"\n", example_tool.name));
+                    } else {
+                        // Fallback if no tools
+                        system_message.push_str("\"I'll use the [tool_name] tool to help with that\"\n");
+                        system_message.push_str("\"Let me try the [tool_name] tool\"\n");
+                    }
+                    
+                    system_message.push_str("You must only mention tools from the above list. Other standard AI tools like 'Web Search', 'Calculator', etc. are NOT available.\n");
                     system_message.push_str("The system will detect your desire to use the tool, and the user will approve or deny the tool usage.\n");
-                    system_message.push_str("If it's helpful, always suggest using one of the available tools to help the user.");
+                    system_message.push_str("If a tool would be helpful, always suggest using one of the AVAILABLE tools listed above to help the user.");
+                } else {
+                    system_message.push_str("IMPORTANT: No MCP tools are currently available. Please do not suggest using any tools as they cannot be executed.");
                 }
                 
                 // Add system message to beginning of chat history
@@ -279,19 +291,39 @@ pub fn ChatTab(
                                 
                                 eprintln!("Found tool suggestion for '{}' in message!", tool_name);
                                 
-                                // If tool suggestion is found, add the message with the suggestion
-                                let suggestion = ToolInteraction::Suggestion {
-                                    tool_name: tool_name.clone(),
-                                    suggested_args: suggested_args.clone(),
-                                    message_idx: message_id,
-                                };
+                                // Check if this tool exists in MCP
+                                let tool_exists = tools_clone.iter().any(|t| t.name == tool_name);
                                 
-                                eprintln!("Adding message with tool suggestion for '{}'", tool_name);
-                                
-                                messages.write().push(
-                                    Message::new(MessageRole::Assistant, message_content)
-                                        .with_tool_interaction(suggestion)
-                                );
+                                if tool_exists {
+                                    // If tool suggestion is found, add the message with the suggestion
+                                    let suggestion = ToolInteraction::Suggestion {
+                                        tool_name: tool_name.clone(),
+                                        suggested_args: suggested_args.clone(),
+                                        message_idx: message_id,
+                                    };
+                                    
+                                    eprintln!("Adding message with tool suggestion for '{}'", tool_name);
+                                    
+                                    messages.write().push(
+                                        Message::new(MessageRole::Assistant, message_content)
+                                            .with_tool_interaction(suggestion)
+                                    );
+                                } else {
+                                    // Tool doesn't exist in MCP - add the message with an explanation
+                                    eprintln!("Tool '{}' suggested but not available in MCP", tool_name);
+                                    
+                                    // Add the AI's message first
+                                    messages.write().push(Message::new(
+                                        MessageRole::Assistant,
+                                        message_content
+                                    ));
+                                    
+                                    // Then add a system message explaining why the tool can't be used
+                                    messages.write().push(Message::new(
+                                        MessageRole::System,
+                                        format!("The '{}' tool was mentioned, but it's not available in the current MCP server.", tool_name)
+                                    ));
+                                }
                             } else {
                                 eprintln!("No tool suggestion detected in message");
                                 
