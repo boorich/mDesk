@@ -3,6 +3,10 @@ use crate::openrouter::{OpenRouterClient, ChatMessage, ModelInfo};
 use crate::components::message::{Message, MessageRole, MessageView};
 use std::env;
 use mcp_core::Tool;
+use crate::components::tool_manager::{ToolManager, ToolInteraction};
+use crate::components::tool_suggestion::ToolExecutionStatus;
+use crate::McpState;
+use serde_json::Value;
 
 // Define a struct to hold OpenRouter models for the dropdown
 #[derive(Debug, Clone, PartialEq)]
@@ -27,13 +31,27 @@ impl ModelSelection {
 #[component]
 pub fn ChatTab(
     mcp_tools: Vec<Tool>,
-    api_key: Option<String>
+    api_key: Option<String>,
+    mcp_state: Signal<McpState>,
 ) -> Element {
     // Chat state
     let mut messages = use_signal(Vec::<Message>::new);
     let mut input = use_signal(String::new);
     let mut is_sending = use_signal(|| false);
     let mut model_selection = use_signal(ModelSelection::new);
+    
+    // Store mcp_tools in a signal so it can be accessed from multiple closures
+    let tools = use_signal(|| {
+        // Log the available tools for debugging
+        eprintln!("Available tools for ChatTab component: {}", mcp_tools.len());
+        for tool in &mcp_tools {
+            eprintln!("  - Tool: {} ({})", tool.name, tool.description);
+        }
+        mcp_tools
+    });
+    
+    // Debug MCP state
+    eprintln!("ChatTab received MCP client state: {}", if mcp_state.read().client.is_some() { "Client available" } else { "No client available" });
     
     // OpenRouter client setup
     let openrouter_api_key = match api_key {
@@ -172,7 +190,10 @@ pub fn ChatTab(
         });
     };
     
-    // Function to send message
+    // Add tool-related state
+    let mut active_tool: Option<(String, Value)> = None;
+    
+    // Modify send_message function to add tool suggestion detection
     let mut send_message = move |_| {
         let user_input = input.read().trim().to_string();
         if user_input.is_empty() || *is_sending.read() {
@@ -191,50 +212,44 @@ pub fn ChatTab(
         // Prepare chat history for API
         let chat_history: Vec<ChatMessage> = messages.read()
             .iter()
-            .filter(|msg| msg.role != MessageRole::Thinking)
+            .filter(|msg| msg.role != MessageRole::Thinking && msg.role != MessageRole::Tool)
             .map(|msg| msg.to_openrouter_format())
             .collect();
         
         // Get selected model
         let selected_model = model_selection.read().selected_model.clone();
         let client_instance = client.read().clone();
-        let tools_clone = mcp_tools.clone();
+        let tools_clone = tools.read().clone();
         
         spawn({
-            to_owned![messages, is_sending, user_input];
+            to_owned![messages, is_sending, user_input, mcp_state];
             async move {
-                // Check if we need to use any MCP tools
-                // Simple approach: check message content for relevant keywords
-                let mut tool_output = String::new();
-                let potentially_relevant_tools = tools_clone.iter()
-                    .filter(|tool| {
-                        user_input.to_lowercase().contains(&tool.name.to_lowercase()) ||
-                        user_input.to_lowercase().contains(&tool.description.to_lowercase())
-                    })
-                    .collect::<Vec<_>>();
+                // Create system message with context about available tools
+                let mut system_message = String::from("You are a helpful AI assistant with access to special tools. ");
                 
-                if !potentially_relevant_tools.is_empty() {
-                    tool_output.push_str("\n\nRelevant tools found:\n");
-                    for tool in potentially_relevant_tools {
-                        tool_output.push_str(&format!("- {}: {}\n", tool.name, tool.description));
+                // Provide tool information in the system message
+                if !tools_clone.is_empty() {
+                    system_message.push_str("The following tools are available:\n\n");
+                    for tool in &tools_clone {
+                        system_message.push_str(&format!("- {}: {}\n", tool.name, tool.description));
+                        system_message.push_str(&format!("  Parameters: {}\n\n", tool.input_schema));
                     }
+                    
+                    // Much more explicit instructions for the model
+                    system_message.push_str("\nIMPORTANT: When you need to use a tool, you MUST use this exact format:\n");
+                    system_message.push_str("\"I need to use the [tool_name] tool with arguments {\\\"param\\\": \\\"value\\\"}\"\n");
+                    system_message.push_str("For example: \"I need to use the read_file tool with arguments {\\\"path\\\": \\\"/path/to/file.txt\\\"}\"\n");
+                    system_message.push_str("The user will then approve or deny the tool usage. Do not attempt to use tools any other way.\n");
+                    system_message.push_str("If you think a tool might be helpful, always suggest using it with the exact format above.");
                 }
                 
-                // Create system message with context
-                let system_message = if tool_output.is_empty() {
-                    ChatMessage {
-                        role: "system".to_string(),
-                        content: "You are a helpful AI assistant.".to_string(),
-                    }
-                } else {
-                    ChatMessage {
-                        role: "system".to_string(),
-                        content: format!("You are a helpful AI assistant. The user's message may require the use of MCP tools. Here are tools that might be relevant to the query: {}", tool_output),
-                    }
-                };
-                
                 // Add system message to beginning of chat history
-                let mut final_messages = vec![system_message];
+                let mut final_messages = vec![
+                    ChatMessage {
+                        role: "system".to_string(),
+                        content: system_message,
+                    }
+                ];
                 final_messages.extend(chat_history);
                 
                 // Call OpenRouter API
@@ -252,10 +267,39 @@ pub fn ChatTab(
                         
                         // Add assistant's response
                         if let Some(choice) = response.choices.first() {
-                            messages.write().push(Message::new(
-                                MessageRole::Assistant,
-                                choice.message.content.clone(),
-                            ));
+                            let message_content = choice.message.content.clone();
+                            let message_id = messages.write().len();
+                            
+                            // Check if the message contains a tool suggestion
+                            eprintln!("Checking message for tool suggestions...");
+                            
+                            if let Some((tool_name, suggested_args)) = 
+                                ToolManager::detect_tool_suggestion(&message_content, &tools_clone) {
+                                
+                                eprintln!("Found tool suggestion for '{}' in message!", tool_name);
+                                
+                                // If tool suggestion is found, add the message with the suggestion
+                                let suggestion = ToolInteraction::Suggestion {
+                                    tool_name: tool_name.clone(),
+                                    suggested_args: suggested_args.clone(),
+                                    message_idx: message_id,
+                                };
+                                
+                                eprintln!("Adding message with tool suggestion for '{}'", tool_name);
+                                
+                                messages.write().push(
+                                    Message::new(MessageRole::Assistant, message_content)
+                                        .with_tool_interaction(suggestion)
+                                );
+                            } else {
+                                eprintln!("No tool suggestion detected in message");
+                                
+                                // Regular message, no tool suggestion
+                                messages.write().push(Message::new(
+                                    MessageRole::Assistant,
+                                    message_content,
+                                ));
+                            }
                         }
                     }
                     Err(e) => {
@@ -274,6 +318,120 @@ pub fn ChatTab(
         });
     };
     
+    // Add function to execute a tool
+    let execute_tool = move |(tool_name, arguments): (String, Value)| {
+        let message_id = messages.read().len();
+        
+        // Add a tool execution message
+        messages.write().push(
+            Message::new(
+                MessageRole::Tool,
+                format!("Executing tool: {}", tool_name)
+            ).with_tool_interaction(
+                ToolInteraction::Execution {
+                    tool_name: tool_name.clone(),
+                    arguments: arguments.clone(),
+                    status: ToolExecutionStatus::Running,
+                    result: None,
+                    message_idx: message_id,
+                }
+            )
+        );
+        
+        let mcp_state_clone = mcp_state.clone();
+        spawn({
+            to_owned![messages, message_id, tool_name, arguments];
+            async move {
+                // Execute the tool
+                match ToolManager::execute_tool(
+                    tool_name.clone(),
+                    arguments.clone(),
+                    &mcp_state_clone.read()
+                ).await {
+                    Ok(result) => {
+                        // Format the result
+                        let result_text = ToolManager::format_tool_result(&result);
+                        
+                        // Update the message with the result
+                        if message_id < messages.read().len() {
+                            // Clone tool_name again as it was moved in the previous call
+                            let tool_name_for_message = tool_name.clone();
+                            
+                            messages.write()[message_id] = Message::new(
+                                MessageRole::Tool,
+                                format!("Tool execution completed: {}", tool_name)
+                            ).with_tool_interaction(
+                                ToolInteraction::Execution {
+                                    tool_name,
+                                    arguments,
+                                    status: ToolExecutionStatus::Completed,
+                                    result: Some(result_text.clone()),
+                                    message_idx: message_id,
+                                }
+                            );
+                            
+                            // Also add the result to the chat history for the AI
+                            messages.write().push(
+                                Message::new(
+                                    MessageRole::System,
+                                    format!("Tool '{}' returned result:\n\n{}", tool_name_for_message, result_text)
+                                )
+                            );
+                        }
+                    },
+                    Err(e) => {
+                        // Update message with error
+                        if message_id < messages.read().len() {
+                            messages.write()[message_id] = Message::new(
+                                MessageRole::Tool,
+                                format!("Tool execution failed: {}", tool_name)
+                            ).with_tool_interaction(
+                                ToolInteraction::Execution {
+                                    tool_name,
+                                    arguments,
+                                    status: ToolExecutionStatus::Failed(format!("{}", e)),
+                                    result: None,
+                                    message_idx: message_id,
+                                }
+                            );
+                        }
+                    }
+                }
+            }
+        });
+    };
+    
+    // Function to handle tool cancellation
+    let cancel_tool = move |message_idx: usize| {
+        if message_idx < messages.read().len() {
+            // First read the information we need
+            let tool_name_opt = messages.read().get(message_idx)
+                .and_then(|msg| {
+                    if let Some(ToolInteraction::Suggestion { tool_name, .. }) = &msg.tool_interaction {
+                        Some(tool_name.clone())
+                    } else {
+                        None
+                    }
+                });
+            
+            // Now we can modify messages if we found a tool name
+            if let Some(tool_name) = tool_name_opt {
+                // Add a message indicating the tool was rejected
+                messages.write().push(
+                    Message::new(
+                        MessageRole::System,
+                        format!("Tool usage rejected: {}", tool_name)
+                    )
+                );
+                
+                // Remove the tool suggestion from the message
+                if let Some(msg) = messages.write().get_mut(message_idx) {
+                    msg.tool_interaction = None;
+                }
+            }
+        }
+    };
+    
     // Handle Enter key
     let mut send_message_ref = send_message.clone();
     let handle_keydown = move |evt: KeyboardEvent| {
@@ -283,6 +441,9 @@ pub fn ChatTab(
         }
     };
     
+    // Clone mcp_tools again for the UI to avoid move errors
+    let tools_for_ui = tools.read().clone();
+
     // UI Rendering
     rsx! {
         div { class: "chat-container",
@@ -386,7 +547,12 @@ pub fn ChatTab(
                     }
                 } else {
                     for message in messages.read().iter() {
-                        MessageView { message: message.clone() }
+                        MessageView { 
+                            message: message.clone(),
+                            tools: tools_for_ui.clone(),
+                            on_tool_execute: execute_tool,
+                            on_tool_cancel: cancel_tool,
+                        }
                     }
                 }
             }
