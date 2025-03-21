@@ -1,0 +1,114 @@
+/* Add styles for OpenRouter credit balance */
+.openrouter-credits {
+    margin-top: 15px;
+    padding: 12px;
+    background-color: rgba(0, 0, 0, 0.15);
+    border-radius: 8px;
+    margin-bottom: 15px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    position: relative;
+}
+
+.credits-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    font-weight: 500;
+    font-size: 13px;
+    color: #aaa;
+}
+
+.refresh-button {
+    background: none;
+    border: none;
+    color: #aaa;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    opacity: 0.6;
+    padding: 0;
+}
+
+.refresh-button:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    opacity: 1;
+}
+
+.refresh-button:active {
+    transform: scale(0.92);
+}
+
+.refresh-button:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.refresh-button svg {
+    width: 14px;
+    height: 14px;
+}
+
+.credits-content {
+    font-size: 13px;
+}
+
+.loading-credits {
+    color: #888;
+    font-style: italic;
+    padding: 4px 0;
+    display: flex;
+    align-items: center;
+    height: 24px;
+}
+
+.no-credits {
+    color: #888;
+    font-style: italic;
+    padding: 4px 0;
+    height: 24px;
+    display: flex;
+    align-items: center;
+}
+
+.credit-balance {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.balance-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 2px 0;
+}
+
+.balance-label {
+    color: #bbb;
+}
+
+.balance-value {
+    color: #2ecc71;
+    font-weight: 500;
+}
+
+.balance-value.used {
+    color: #e74c3c;
+}
+
+.balance-item.small {
+    font-size: 12px;
+    margin-top: 2px;
+}
+
+.balance-item.small .balance-label,
+.balance-item.small .balance-value {
+    color: #aaa;
+    font-weight: normal;
+} 

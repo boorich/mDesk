@@ -76,9 +76,40 @@ enum ServerStatus {
     Starting,
 }
 
+// Add this component above the McpDemo component
+#[component]
+fn CreditBalanceDisplay(
+    balance: openrouter::CreditBalanceResponse,
+) -> Element {
+    let credits = balance.data.total_credits;
+    let usage = balance.data.total_usage;
+    let available = if credits > usage { credits - usage } else { 0.0 };
+    
+    let available_text = format!("${:.2}", available);
+    let usage_text = format!("${:.2}", usage);
+    
+    rsx! {
+        div { class: "credit-balance",
+            div { class: "balance-item",
+                span { class: "balance-label", "Available:" }
+                span { class: "balance-value", "{available_text}" }
+            }
+            div { class: "balance-item",
+                span { class: "balance-label", "Used:" }
+                span { class: "balance-value used", "{usage_text}" }
+            }
+        }
+    }
+}
+
 /// MCP Demo page with real client implementation
 #[component]
 fn McpDemo() -> Element {
+    // Format currency value to a readable string
+    let format_currency = |value: f64| -> String {
+        format!("$ {:.2}", value)
+    };
+    
     let mut client_status = use_signal(|| "Not initialized".to_string());
     let mut error_message = use_signal(|| None::<String>);
     let mut show_resources = use_signal(|| false);
@@ -88,6 +119,10 @@ fn McpDemo() -> Element {
     let mut active_section = use_signal(|| "chat");
     let mut active_tool_modal = use_signal(|| None::<Tool>);
     
+    // Add credit balance signal
+    let mut openrouter_credit = use_signal(|| None::<openrouter::CreditBalanceResponse>);
+    let mut is_loading_credit = use_signal(|| false);
+    
     let mut mcp_state = use_signal(|| McpState { 
         client: None,
         selected_server: None,
@@ -95,8 +130,62 @@ fn McpDemo() -> Element {
         server_status: HashMap::new(),
     });
     
-    // Get OpenRouter API key from environment variables
-    let openrouter_api_key = env::var("OPENROUTER_API_KEY").ok();
+    // Get OpenRouter API key from environment variables 
+    let openrouter_api_key_original = env::var("OPENROUTER_API_KEY").ok();
+    
+    // Function to load OpenRouter credit balance
+    let mut load_credit_balance = {
+        // Clone for this closure
+        let openrouter_api_key = openrouter_api_key_original.clone();
+        
+        move |_| {
+            // Use the cloned value in this closure
+            if let Some(api_key) = &openrouter_api_key {
+                // Set loading state
+                is_loading_credit.set(true);
+                
+                // Clone API key for the async block
+                let api_key = api_key.clone();
+                
+                spawn({
+                    to_owned![openrouter_credit, is_loading_credit];
+                    async move {
+                        // Create client inside the async block with the cloned API key
+                        let client = openrouter::OpenRouterClient::new(api_key);
+                        
+                        match client.get_credit_balance().await {
+                            Ok(balance) => {
+                                openrouter_credit.set(Some(balance));
+                            }
+                            Err(e) => {
+                                eprintln!("Error fetching OpenRouter credit balance: {}", e);
+                                openrouter_credit.set(None);
+                            }
+                        }
+                        
+                        // Set loading state to false regardless of result
+                        is_loading_credit.set(false);
+                    }
+                });
+            }
+        }
+    };
+    
+    // Load credit balance on component mount if API key is available
+    use_effect({
+        // Use a different clone for this closure
+        let openrouter_api_key = openrouter_api_key_original.clone();
+        let mut load_credit_balance = load_credit_balance.clone();
+        
+        move || {
+            if openrouter_api_key.is_some() {
+                load_credit_balance(());
+            }
+            
+            // Return unit type as expected
+            ()
+        }
+    });
     
     // Server action handles both start and stop
     let server_action = move |_| {
@@ -691,6 +780,27 @@ fn McpDemo() -> Element {
 
                 // Version info
                 div { class: "sidebar-footer",
+                    // Add credit balance display before the version info
+                    if openrouter_api_key_original.clone().is_some() {
+                        div { class: "openrouter-credits",
+                            div { class: "credits-header",
+                                span { "OpenRouter Credits" }
+                            }
+                            
+                            div { class: "credits-content",
+                                if *is_loading_credit.read() {
+                                    div { class: "loading-credits", "Loading..." }
+                                } else if let Some(balance) = openrouter_credit.read().as_ref() {
+                                    CreditBalanceDisplay {
+                                        balance: balance.clone(),
+                                    }
+                                } else {
+                                    div { class: "no-credits", "No balance data available" }
+                                }
+                            }
+                        }
+                    }
+                    
                     div { class: "version-info", "mDesk v0.1.0" }
                 }
             }
@@ -1208,7 +1318,7 @@ fn McpDemo() -> Element {
                         rsx! {
                             ChatTab {
                                 mcp_tools: tools.read().to_vec(),
-                                api_key: openrouter_api_key.clone(),
+                                api_key: openrouter_api_key_original.clone(),
                                 mcp_state: mcp_state.clone(),
                             }
                         }

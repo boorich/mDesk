@@ -177,6 +177,18 @@ pub enum OpenRouterError {
     Unknown(String),
 }
 
+// Credit balance response
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct CreditBalanceResponse {
+    pub data: CreditBalanceData,
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct CreditBalanceData {
+    pub total_credits: f64,
+    pub total_usage: f64,
+}
+
 impl OpenRouterClient {
     pub fn new(api_key: String) -> Self {
         let client = Client::builder()
@@ -309,6 +321,31 @@ impl OpenRouterClient {
                 Err(OpenRouterError::Unknown(format!("JSON deserialization error: {}", e)))
             }
         }
+    }
+    
+    pub async fn get_credit_balance(&self) -> Result<CreditBalanceResponse, OpenRouterError> {
+        // Throttle requests to avoid rate limiting
+        self.throttle().await?;
+        
+        let response = self.client
+            .get(&format!("{}/credits", self.base_url))
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("HTTP-Referer", "https://mdesk.app") // Identifying the application
+            .send()
+            .await?;
+        
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            
+            return Err(match status.as_u16() {
+                429 => OpenRouterError::RateLimitExceeded,
+                _ => OpenRouterError::ApiError(format!("HTTP {}: {}", status, error_text)),
+            });
+        }
+        
+        let balance: CreditBalanceResponse = response.json().await?;
+        Ok(balance)
     }
 }
 
