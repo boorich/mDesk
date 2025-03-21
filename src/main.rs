@@ -86,6 +86,7 @@ fn McpDemo() -> Element {
     let mut resources = use_signal(Vec::<McpResource>::new);
     let mut tools = use_signal(Vec::<Tool>::new);
     let mut active_section = use_signal(|| "chat");
+    let mut active_tool_modal = use_signal(|| None::<Tool>);
     
     let mut mcp_state = use_signal(|| McpState { 
         client: None,
@@ -1133,12 +1134,11 @@ fn McpDemo() -> Element {
                                         // Add Test Tool button
                                         {
                                             let tool_clone = tool.clone();
-                                            let mut show_test_modal = use_signal(|| false);
                                             
                                             rsx! {
                                                 button {
                                                     class: "tool-test-button",
-                                                    onclick: move |_| show_test_modal.set(true),
+                                                    onclick: move |_| active_tool_modal.set(Some(tool_clone.clone())),
                                                     svg {
                                                         xmlns: "http://www.w3.org/2000/svg",
                                                         width: "16",
@@ -1153,16 +1153,7 @@ fn McpDemo() -> Element {
                                                         polyline { points: "22 4 12 14.01 9 11.01" }
                                                     }
                                                     "Test Tool"
-                                                }
-                                                
-                                                // Test Tool Modal Dialog
-                                                if *show_test_modal.read() {
-                                                    components::ToolTestModal {
-                                                        tool: tool_clone.clone(),
-                                                        on_close: move |_| show_test_modal.set(false),
-                                                        mcp_state: mcp_state.clone(),
-                                                    }
-                                                }
+                                                } 
                                             }
                                         }
                                     }
@@ -1223,6 +1214,15 @@ fn McpDemo() -> Element {
                         }
                     }
                 }
+            }
+        }
+        
+        // Modal outside the wrapper but still inside the main rsx! block
+        if let Some(tool) = active_tool_modal.read().clone() {
+            components::ToolTestModal {
+                tool: tool,
+                on_close: move |_| active_tool_modal.set(None),
+                mcp_state: mcp_state.clone(),
             }
         }
     }
