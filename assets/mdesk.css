@@ -1643,26 +1643,28 @@ textarea.form-control {
 
 /* Tool Test Button */
 .tool-test-button {
-    margin-top: 12px;
-    padding: 8px 16px;
-    background-color: var(--primary-color);
-    color: #fff;
-    border: none;
-    border-radius: var(--border-radius);
-    cursor: pointer;
-    font-size: 14px;
-    display: flex;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
-    transition: background-color 0.2s;
+    margin-top: 16px;
+    padding: 8px 16px;
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: var(--border-radius);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
 }
 
 .tool-test-button:hover {
     background-color: var(--primary-color-dark);
+    transform: translateY(-1px);
 }
 
-/* Dialog Overlay */
+/* Tool test dialog */
 .dialog-overlay {
     position: fixed;
     top: 0;
@@ -1673,34 +1675,32 @@ textarea.form-control {
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 100;
+    z-index: 1000;
     animation: fadeIn 0.2s ease-out;
 }
 
-/* Tool Test Dialog */
 .tool-test-dialog {
-    background-color: var(--sidebar-color);
-    color: var(--sidebar-text);
+    background-color: var(--card-color);
     border-radius: var(--border-radius);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+    box-shadow: var(--shadow-lg);
     width: 90%;
-    max-width: 700px;
-    max-height: 80vh;
+    max-width: 600px;
+    max-height: 90vh;
     overflow-y: auto;
     animation: dialogSlide 0.3s ease-out;
 }
 
 @keyframes dialogSlide {
-    from { opacity: 0; transform: translateY(-20px); }
-    to { opacity: 1; transform: translateY(0); }
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
 }
 
 .dialog-header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    padding: 16px 20px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    justify-content: space-between;
+    padding: 20px 24px;
+    border-bottom: 1px solid #e2e8f0;
 }
 
 .dialog-title {
@@ -1709,28 +1709,31 @@ textarea.form-control {
 }
 
 .dialog-close {
-    background: none;
+    background: transparent;
     border: none;
-    font-size: 24px;
-    color: var(--sidebar-text);
     cursor: pointer;
-    line-height: 1;
+    color: var(--text-color-light);
+    transition: color 0.2s;
+}
+
+.dialog-close:hover {
+    color: var(--error-color);
 }
 
 .dialog-content {
-    padding: 20px;
+    padding: 24px;
 }
 
 .dialog-footer {
     display: flex;
     justify-content: flex-end;
-    padding: 16px 20px;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
-    gap: 12px;
+    gap: 16px;
+    padding: 20px 24px;
+    border-top: 1px solid #e2e8f0;
 }
 
 .form-group {
-    margin-bottom: 16px;
+    margin-bottom: 20px;
 }
 
 .form-group label {
@@ -1741,62 +1744,26 @@ textarea.form-control {
 
 .form-control {
     width: 100%;
-    padding: 10px 12px;
+    padding: 12px;
     border-radius: var(--border-radius);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    background-color: rgba(0, 0, 0, 0.2);
-    color: var(--sidebar-text);
-    font-family: monospace;
+    border: 1px solid #e2e8f0;
+    font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 14px;
+    resize: vertical;
+    min-height: 120px;
 }
 
 .tool-result {
-    background-color: rgba(0, 0, 0, 0.2);
-    padding: 12px;
+    margin-top: 20px;
+    padding: 16px;
+    background-color: #f8fafc;
     border-radius: var(--border-radius);
-    font-family: monospace;
-    max-height: 300px;
-    overflow-y: auto;
+    border-left: 4px solid var(--success-color);
+    font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     white-space: pre-wrap;
-    word-break: break-word;
+    overflow-wrap: break-word;
 }
 
 .tool-result.error {
-    background-color: rgba(239, 68, 68, 0.1);
-    color: var(--error-color);
-}
-
-.btn-cancel {
-    background-color: rgba(255, 255, 255, 0.1);
-    color: var(--sidebar-text);
-    border: none;
-    border-radius: var(--border-radius);
-    padding: 8px 16px;
-    cursor: pointer;
-    font-size: 14px;
-    transition: background-color 0.2s;
-}
-
-.btn-cancel:hover {
-    background-color: rgba(255, 255, 255, 0.2);
-}
-
-.btn-submit {
-    background-color: var(--primary-color);
-    color: white;
-    border: none;
-    border-radius: var(--border-radius);
-    padding: 8px 16px;
-    cursor: pointer;
-    font-size: 14px;
-    transition: background-color 0.2s;
-}
-
-.btn-submit:hover:not(:disabled) {
-    background-color: var(--primary-color-dark);
-}
-
-.btn-submit:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
+    border-left-color: var(--error-color);
 }

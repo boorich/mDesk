@@ -1129,6 +1129,42 @@ fn McpDemo() -> Element {
                                                 "{tool.input_schema}" 
                                             }
                                         }
+                                        
+                                        // Add Test Tool button
+                                        {
+                                            let tool_clone = tool.clone();
+                                            let mut show_test_modal = use_signal(|| false);
+                                            
+                                            rsx! {
+                                                button {
+                                                    class: "tool-test-button",
+                                                    onclick: move |_| show_test_modal.set(true),
+                                                    svg {
+                                                        xmlns: "http://www.w3.org/2000/svg",
+                                                        width: "16",
+                                                        height: "16",
+                                                        view_box: "0 0 24 24",
+                                                        fill: "none",
+                                                        stroke: "currentColor",
+                                                        stroke_width: "2",
+                                                        stroke_linecap: "round",
+                                                        stroke_linejoin: "round",
+                                                        path { d: "M22 11.08V12a10 10 0 1 1-5.93-9.14" }
+                                                        polyline { points: "22 4 12 14.01 9 11.01" }
+                                                    }
+                                                    "Test Tool"
+                                                }
+                                                
+                                                // Test Tool Modal Dialog
+                                                if *show_test_modal.read() {
+                                                    components::ToolTestModal {
+                                                        tool: tool_clone.clone(),
+                                                        on_close: move |_| show_test_modal.set(false),
+                                                        mcp_state: mcp_state.clone(),
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
