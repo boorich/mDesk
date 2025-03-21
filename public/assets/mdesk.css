@@ -111,4 +111,264 @@
 .balance-item.small .balance-value {
     color: #aaa;
     font-weight: normal;
+}
+
+/* Server Status Styles */
+.server-status {
+    font-size: 12px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    margin-top: 5px;
+    display: inline-block;
+}
+
+.server-status.running {
+    background-color: rgba(46, 204, 113, 0.15);
+    color: #2ecc71;
+}
+
+.server-status.failed {
+    background-color: rgba(231, 76, 60, 0.15);
+    color: #e74c3c;
+}
+
+.server-status.stopped {
+    background-color: rgba(149, 165, 166, 0.15);
+    color: #95a5a6;
+}
+
+.server-status.starting {
+    background-color: rgba(52, 152, 219, 0.15);
+    color: #3498db;
+}
+
+/* Server Action Button Styles */
+.server-action.start {
+    background-color: #2ecc71;
+    color: white;
+}
+
+.server-action.stop {
+    background-color: #e74c3c;
+    color: white;
+}
+
+.server-action.starting {
+    background-color: #3498db;
+    color: white;
+    opacity: 0.8;
+    cursor: not-allowed;
+}
+
+.server-action.retry {
+    background-color: #f39c12;
+    color: white;
+}
+
+/* Make select button look secondary when next to start/stop */
+.server-action.select {
+    background-color: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #aaa;
+}
+
+.server-action.select:hover:not(:disabled) {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: white;
+}
+
+.server-action.select:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    background-color: transparent;
+}
+
+/* Server Manager Styles */
+.server-manager {
+    width: 100%;
+}
+
+.server-manager-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.server-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.server-item {
+    background-color: rgba(0, 0, 0, 0.15);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    padding: 12px 16px;
+    transition: all 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.server-item.selected {
+    border-color: rgba(52, 152, 219, 0.5);
+    background-color: rgba(52, 152, 219, 0.1);
+}
+
+.server-item-content {
+    display: flex;
+    gap: 15px;
+}
+
+.server-icon {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.default-badge {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    background-color: #3498db;
+    color: white;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-weight: 500;
+}
+
+.server-info {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.server-name {
+    font-weight: 500;
+    font-size: 15px;
+}
+
+.server-description {
+    font-size: 13px;
+    color: #aaa;
+}
+
+.server-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.server-action {
+    padding: 6px 12px;
+    border-radius: 4px;
+    border: none;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.server-action svg {
+    width: 16px;
+    height: 16px;
+}
+
+.server-action:hover:not(:disabled) {
+    opacity: 0.9;
+    transform: translateY(-1px);
+}
+
+.server-action:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+.server-action:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.server-action.edit,
+.server-action.delete {
+    background-color: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #aaa;
+    padding: 6px 8px;
+}
+
+.server-action.edit:hover:not(:disabled),
+.server-action.delete:hover:not(:disabled) {
+    background-color: rgba(255, 255, 255, 0.05);
+    color: white;
+}
+
+.server-action.delete:hover:not(:disabled) {
+    color: #e74c3c;
+    border-color: rgba(231, 76, 60, 0.3);
+}
+
+/* Improved server status display */
+.server-status {
+    font-size: 12px;
+    padding: 3px 8px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 4px;
+    width: fit-content;
+}
+
+.status-error-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background-color: rgba(255, 255, 255, 0.2);
+    font-size: 10px;
+    font-weight: bold;
+    margin-left: 4px;
+    cursor: help;
+}
+
+/* Add Server Button */
+.add-server-button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background-color: #3498db;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.add-server-button:hover {
+    background-color: #2980b9;
+}
+
+.add-server-button:active {
+    transform: scale(0.98);
+}
+
+/* Empty state */
+.empty-servers {
+    text-align: center;
+    padding: 40px 20px;
+    color: #aaa;
+    background-color: rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
+    border: 1px dashed rgba(255, 255, 255, 0.1);
 } 

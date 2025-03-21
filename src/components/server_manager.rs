@@ -1,8 +1,11 @@
 use dioxus::prelude::*;
 use crate::server_config::{ServerConfig, ServerConfigs};
 use std::path::Path;
-// use std::sync::Arc;
-// use tokio::sync::Mutex;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use mcp_client::{transport::{StdioTransport, Error as TransportError}, 
+    ClientInfo, ClientCapabilities, McpClient, McpService, Transport, McpClientTrait
+};
 
 /// Server list component
 #[derive(Props, Clone, PartialEq)]
@@ -10,11 +13,12 @@ pub struct ServerManagerProps {
     pub on_select_server: EventHandler<ServerConfig>,
     #[props(default)]
     pub selected_id: Option<String>,
+    pub mcp_state: Signal<crate::McpState>,
 }
 
 /// Component for managing MCP server configurations
 #[component]
-pub fn ServerManager(props: ServerManagerProps) -> Element {
+pub fn ServerManager(mut props: ServerManagerProps) -> Element {
     // State for server configurations
     let mut configs = use_signal(|| ServerConfigs::default());
     let mut show_add_dialog = use_signal(|| false);
@@ -52,6 +56,107 @@ pub fn ServerManager(props: ServerManagerProps) -> Element {
     let select_server = move |id: String| {
         if let Some(server) = configs.read().get_by_id(&id) {
             props.on_select_server.call(server.clone());
+        }
+    };
+    
+    // Function to toggle server state (start/stop)
+    let mut on_toggle_server = move |server_config: ServerConfig| {
+        use dioxus::prelude::spawn;
+        use crate::ServerStatus;
+        use crate::server_config;
+        use mcp_client::transport::stdio::StdioTransport;
+        use mcp_client::{ClientInfo, ClientCapabilities, McpClient, McpService};
+        use std::time::Duration;
+        
+        let server_id = server_config.id.clone();
+        
+        // Check current server status
+        let status = props.mcp_state.read().server_status.get(&server_id).cloned();
+        
+        match status {
+            Some(ServerStatus::Running) => {
+                // Stop the server
+                let client_opt = props.mcp_state.read().active_clients.get(&server_id).cloned();
+                if let Some(client) = client_opt {
+                    // Update status to show stopping
+                    props.mcp_state.write().server_status.insert(server_id.clone(), ServerStatus::Stopped);
+                    
+                    // Remove from active clients
+                    props.mcp_state.write().active_clients.remove(&server_id);
+                    
+                    // If it's the selected server, clear the client
+                    let selected_server = props.mcp_state.read().selected_server.clone();
+                    if let Some(selected) = selected_server {
+                        if selected.id == server_id {
+                            props.mcp_state.write().client = None;
+                            props.mcp_state.write().selected_server = None;
+                        }
+                    }
+                }
+            },
+            Some(ServerStatus::Stopped) | None => {
+                // Start the server
+                // Mark as starting
+                props.mcp_state.write().server_status.insert(server_id.clone(), ServerStatus::Starting);
+                
+                // Clone what we need for the spawn
+                let server_config_clone = server_config.clone();
+                let mut mcp_state_clone = props.mcp_state.clone();
+                
+                spawn({
+                    async move {
+                        let server_id = server_config_clone.id.clone();
+                        
+                        // Create transport with the server's configuration
+                        let env_vars = server_config_clone.env.clone();
+                        
+                        let transport = StdioTransport::new(
+                            &server_config_clone.command,
+                            server_config_clone.args.clone(),
+                            env_vars
+                        );
+                        
+                        match transport.start().await {
+                            Ok(handle) => {
+                                let service = McpService::with_timeout(handle, Duration::from_secs(30));
+                                let mut client = McpClient::new(service);
+                                
+                                match client.initialize(
+                                    ClientInfo {
+                                        name: "mDesk".to_string(),
+                                        version: "0.1.0".to_string(),
+                                    },
+                                    ClientCapabilities::default()
+                                ).await {
+                                    Ok(_) => {
+                                        // Successfully started the server
+                                        let client_arc = Arc::new(Mutex::new(client));
+                                        
+                                        // Store in active clients
+                                        mcp_state_clone.write().active_clients.insert(server_id.clone(), client_arc.clone());
+                                        
+                                        // Update status to Running
+                                        mcp_state_clone.write().server_status.insert(server_id, ServerStatus::Running);
+                                    },
+                                    Err(e) => {
+                                        // Failed to initialize
+                                        let error_msg = format!("Failed to initialize: {}", e);
+                                        mcp_state_clone.write().server_status.insert(server_id, ServerStatus::Failed(error_msg));
+                                    }
+                                }
+                            },
+                            Err(e) => {
+                                // Failed to start transport
+                                let error_msg = format!("Failed to start: {}", e);
+                                mcp_state_clone.write().server_status.insert(server_id, ServerStatus::Failed(error_msg));
+                            }
+                        }
+                    }
+                });
+            },
+            _ => {
+                // Do nothing for Failed or Starting states
+            }
         }
     };
     
@@ -227,14 +332,105 @@ pub fn ServerManager(props: ServerManagerProps) -> Element {
                                             if let Some(ref desc) = server_desc {
                                                 div { class: "server-description", "{desc}" }
                                             }
+                                            // Add server status indicator
+                                            {
+                                                let server_id_for_status = server_id.clone();
+                                                let status = props.mcp_state.read().server_status.get(&server_id_for_status).cloned();
+                                                
+                                                let status_class = match status {
+                                                    Some(crate::ServerStatus::Running) => "server-status running",
+                                                    Some(crate::ServerStatus::Failed(_)) => "server-status failed",
+                                                    Some(crate::ServerStatus::Stopped) => "server-status stopped",
+                                                    Some(crate::ServerStatus::Starting) => "server-status starting",
+                                                    None => "server-status stopped",
+                                                };
+                                                
+                                                let status_text = match status {
+                                                    Some(crate::ServerStatus::Running) => "Running",
+                                                    Some(crate::ServerStatus::Failed(_)) => "Failed",
+                                                    Some(crate::ServerStatus::Stopped) => "Stopped",
+                                                    Some(crate::ServerStatus::Starting) => "Starting",
+                                                    None => "Stopped",
+                                                };
+                                                
+                                                let error_msg = if let Some(crate::ServerStatus::Failed(error)) = status {
+                                                    Some(error)
+                                                } else {
+                                                    None
+                                                };
+                                                
+                                                rsx! {
+                                                    div { class: status_class, 
+                                                        "{status_text}"
+                                                        if let Some(error) = error_msg {
+                                                            span { 
+                                                                class: "status-error-icon",
+                                                                title: "{error}",
+                                                                "!"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                     div { class: "server-actions",
-                                        button {
-                                            class: "server-action select",
-                                            onclick: move |_| select_server(select_id.clone()),
-                                            "Select"
+                                        // Get server status to show appropriate button
+                                        {
+                                            let server_id_for_status = server_id.clone();
+                                            let status = props.mcp_state.read().server_status.get(&server_id_for_status).cloned();
+                                            let server_config_for_toggle = configs.read().get_by_id(&server_id_for_status).cloned();
+                                            
+                                            if let Some(server_config) = server_config_for_toggle {
+                                                // Only show the toggle button if we have the config
+                                                let button_text;
+                                                let button_class;
+                                                let mut is_disabled = false;
+                                                
+                                                match status {
+                                                    Some(crate::ServerStatus::Running) => {
+                                                        button_text = "Stop";
+                                                        button_class = "server-action stop";
+                                                        is_disabled = false;
+                                                    },
+                                                    Some(crate::ServerStatus::Failed(_)) => {
+                                                        button_text = "Retry";
+                                                        button_class = "server-action retry";
+                                                        is_disabled = false;
+                                                    },
+                                                    Some(crate::ServerStatus::Starting) => {
+                                                        button_text = "Starting...";
+                                                        button_class = "server-action starting";
+                                                        is_disabled = true;
+                                                    },
+                                                    Some(crate::ServerStatus::Stopped) | None => {
+                                                        button_text = "Start";
+                                                        button_class = "server-action start";
+                                                        is_disabled = false;
+                                                    }
+                                                }
+                                                
+                                                let server_for_toggle = server_config.clone();
+                                                
+                                                rsx! {
+                                                    button {
+                                                        class: button_class,
+                                                        disabled: is_disabled,
+                                                        onclick: move |_| {
+                                                            // If server is running, also select it when clicked
+                                                            if matches!(status, Some(crate::ServerStatus::Running)) {
+                                                                select_server(select_id.clone());
+                                                            }
+                                                            on_toggle_server(server_for_toggle.clone())
+                                                        },
+                                                        "{button_text}"
+                                                    }
+                                                }
+                                            } else {
+                                                rsx! {}
+                                            }
                                         }
+                                        
                                         button {
                                             class: "server-action edit",
                                             onclick: move |_| edit_server_fn(edit_id.clone()),

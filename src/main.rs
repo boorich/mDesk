@@ -1283,6 +1283,7 @@ fn McpDemo() -> Element {
                     ServerManager {
                         on_select_server: select_server,
                         selected_id: mcp_state.read().selected_server.as_ref().map(|s| s.id.clone()),
+                        mcp_state: mcp_state.clone(),
                     }
                 }
 
