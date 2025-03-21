@@ -62,6 +62,18 @@ fn App() -> Element {
 struct McpState {
     client: Option<Arc<Mutex<McpClient<Timeout<McpService<StdioTransportHandle>>>>>>,
     selected_server: Option<ServerConfig>,
+    active_clients: HashMap<String, Arc<Mutex<McpClient<Timeout<McpService<StdioTransportHandle>>>>>>,
+    // Track the status of each server (id -> status)
+    server_status: HashMap<String, ServerStatus>,
+}
+
+// Status of each server
+#[derive(Clone, Debug, PartialEq)]
+enum ServerStatus {
+    Running,
+    Failed(String),
+    Stopped,
+    Starting,
 }
 
 /// MCP Demo page with real client implementation
@@ -78,6 +90,8 @@ fn McpDemo() -> Element {
     let mut mcp_state = use_signal(|| McpState { 
         client: None,
         selected_server: None,
+        active_clients: HashMap::new(),
+        server_status: HashMap::new(),
     });
     
     // Get OpenRouter API key from environment variables
@@ -94,13 +108,24 @@ fn McpDemo() -> Element {
             show_resources.set(false);
             show_tools.set(false);
             
-            // Take the client out of the state
-            mcp_state.write().client = None;
+            // Clear all clients and mark all servers as stopped
+            let mut state = mcp_state.write();
+            state.client = None;
+            
+            // First collect all server IDs to avoid the mutable/immutable borrow conflict
+            let server_ids: Vec<String> = state.active_clients.keys().cloned().collect();
+            
+            // Update all server statuses to Stopped
+            for id in server_ids {
+                state.server_status.insert(id, ServerStatus::Stopped);
+            }
+            
+            state.active_clients.clear();
             client_status.set("Not initialized".to_string());
             return;
         }
 
-        // Start case
+        // Start case - load all server configurations
         client_status.set("Initializing...".to_string());
         error_message.set(None);
         show_resources.set(false);
@@ -109,53 +134,133 @@ fn McpDemo() -> Element {
         spawn({
             to_owned![mcp_state, client_status, error_message];
             async move {
-                // Determine which server configuration to use
-                let server_config = mcp_state.read().selected_server.clone().unwrap_or_else(|| {
-                    // Use the default configuration from server_config module
-                    ServerConfig::default_filesystem()
-                });
+                // Load server configurations from the file
+                let configs = match server_config::ServerConfigs::load_from_file("servers.json") {
+                    Ok(configs) => configs,
+                    Err(e) => {
+                        // If there's an error (likely file not found), create default configs
+                        eprintln!("Error loading server configurations: {}", e);
+                        server_config::ServerConfigs::initialize_default()
+                    }
+                };
                 
-                // Log which server we're connecting to
-                eprintln!("Connecting to MCP server: {}", server_config.name);
+                // Log the number of servers to start
+                eprintln!("Starting {} MCP servers", configs.servers.len());
                 
-                // Create transport with the server's configuration
-                let mut env_vars = server_config.env.clone();
+                // Create a hashmap to store all active clients
+                let mut active_clients = HashMap::new();
+                let mut default_server = None;
+                let mut server_status = HashMap::new();
                 
-                let transport = StdioTransport::new(
-                    &server_config.command,
-                    server_config.args.clone(),
-                    env_vars
-                );
-                
-                match transport.start().await {
-                    Ok(handle) => {
-                        let service = McpService::with_timeout(handle, Duration::from_secs(30));
-                        let mut client = McpClient::new(service);
-                        
-                        match client.initialize(
-                            ClientInfo {
-                                name: "mDesk".to_string(),
-                                version: "0.1.0".to_string(),
-                            },
-                            ClientCapabilities::default()
-                        ).await {
-                            Ok(_) => {
-                                client_status.set(format!("Connected to {} (MCP v1.0)", server_config.name));
-                                mcp_state.set(McpState {
-                                    client: Some(Arc::new(Mutex::new(client))),
-                                    selected_server: Some(server_config),
-                                });
+                // Start each server configuration - use & to borrow instead of moving
+                for server_config in &configs.servers {
+                    // Clone the server config to avoid borrowing issues
+                    let server_config = server_config.clone();
+                    let server_id = server_config.id.clone();
+                    
+                    // Mark this server as starting
+                    server_status.insert(server_id.clone(), ServerStatus::Starting);
+                    
+                    // Log which server we're connecting to
+                    eprintln!("Connecting to MCP server: {}", server_config.name);
+                    
+                    // Create transport with the server's configuration
+                    let env_vars = server_config.env.clone();
+                    
+                    let transport = StdioTransport::new(
+                        &server_config.command,
+                        server_config.args.clone(),
+                        env_vars
+                    );
+                    
+                    match transport.start().await {
+                        Ok(handle) => {
+                            let service = McpService::with_timeout(handle, Duration::from_secs(30));
+                            let mut client = McpClient::new(service);
+                            
+                            match client.initialize(
+                                ClientInfo {
+                                    name: "mDesk".to_string(),
+                                    version: "0.1.0".to_string(),
+                                },
+                                ClientCapabilities::default()
+                            ).await {
+                                Ok(_) => {
+                                    // Successfully started the server
+                                    client_status.set(format!("Connected to {} (MCP v1.0)", server_config.name));
+                                    
+                                    // Store the client in our HashMap
+                                    let client_arc = Arc::new(Mutex::new(client));
+                                    active_clients.insert(server_id.clone(), client_arc.clone());
+                                    
+                                    // Update server status to Running
+                                    server_status.insert(server_id.clone(), ServerStatus::Running);
+                                    
+                                    // Remember default server
+                                    if server_config.is_default {
+                                        default_server = Some((server_config, client_arc));
+                                    }
+                                }
+                                Err(e) => {
+                                    let error_msg = format!("Failed to initialize: {}", e);
+                                    eprintln!("Failed to initialize client for server {}: {}", server_config.name, e);
+                                    
+                                    // Update server status to Failed
+                                    server_status.insert(server_id, ServerStatus::Failed(error_msg));
+                                    
+                                    if configs.servers.len() == 1 {
+                                        // Only show error in UI if this is the only server
+                                        client_status.set("Error".to_string());
+                                        error_message.set(Some(format!("Failed to initialize client: {}", e)));
+                                    }
+                                }
                             }
-                            Err(e) => {
+                        }
+                        Err(e) => {
+                            let error_msg = format!("Failed to start: {}", e);
+                            eprintln!("Failed to start transport for server {}: {}", server_config.name, e);
+                            
+                            // Update server status to Failed
+                            server_status.insert(server_id, ServerStatus::Failed(error_msg));
+                            
+                            if configs.servers.len() == 1 {
+                                // Only show error in UI if this is the only server
                                 client_status.set("Error".to_string());
-                                error_message.set(Some(format!("Failed to initialize client: {}", e)));
+                                error_message.set(Some(format!("Failed to start transport: {}", e)));
                             }
                         }
                     }
-                    Err(e) => {
-                        client_status.set("Error".to_string());
-                        error_message.set(Some(format!("Failed to start transport: {}", e)));
+                }
+                
+                // After the loop, update the mcp_state 
+                {
+                    let mut state = mcp_state.write();
+                    state.active_clients = active_clients;
+                    state.server_status = server_status;
+                    
+                    // Select the default server if available, otherwise select the first one
+                    if let Some((server, client)) = default_server {
+                        state.client = Some(client);
+                        state.selected_server = Some(server);
+                    } else {
+                        // Find the first available client
+                        if let Some((id, client)) = state.active_clients.iter().next() {
+                            let id = id.clone();
+                            // Get the server config for this client
+                            if let Ok(configs) = server_config::ServerConfigs::load_from_file("servers.json") {
+                                if let Some(server) = configs.get_by_id(&id) {
+                                    state.client = Some(client.clone());
+                                    state.selected_server = Some(server.clone());
+                                }
+                            }
+                        }
                     }
+                }
+                
+                // Final check - if no clients were successfully started, show an error
+                if mcp_state.read().client.is_none() {
+                    client_status.set("Error".to_string());
+                    error_message.set(Some("Failed to start any MCP servers".to_string()));
                 }
             }
         });
@@ -243,7 +348,31 @@ fn McpDemo() -> Element {
     
     // Handle server selection
     let select_server = move |server: ServerConfig| {
-        mcp_state.write().selected_server = Some(server);
+        // Get a copy of server name for error messages
+        let server_name = server.name.clone();
+        
+        // Check if we have any active clients
+        if mcp_state.read().active_clients.is_empty() {
+            // No active clients yet, just set the selection
+            mcp_state.write().selected_server = Some(server);
+            return;
+        }
+        
+        // Check if we have a client for this server
+        let client_opt = mcp_state.read().active_clients.get(&server.id).cloned();
+        
+        if let Some(client) = client_opt {
+            // We found a client, update the state with it
+            let mut state = mcp_state.write();
+            state.client = Some(client);
+            state.selected_server = Some(server);
+            
+            // Update status message
+            client_status.set(format!("Connected to {} (MCP v1.0)", server_name));
+        } else {
+            // This server is not running yet
+            error_message.set(Some(format!("Server {} is not running. Start the server first.", server_name)));
+        }
     };
 
     // Set active section
@@ -450,6 +579,68 @@ fn McpDemo() -> Element {
                         div { class: "status-info",
                             div { class: "status-label", "Status" }
                             div { class: "status-value", "{client_status}" }
+                        }
+                    }
+
+                    // Show a list of individual server statuses when at least one server has been configured
+                    if !mcp_state.read().server_status.is_empty() {
+                        div { class: "server-status-list",
+                            div { class: "server-status-heading", "Individual Servers" }
+                            
+                            // Load all server configs to get names
+                            {
+                                let server_statuses = mcp_state.read().server_status.clone();
+                                let configs_result = server_config::ServerConfigs::load_from_file("servers.json");
+                                
+                                if let Ok(configs) = configs_result {
+                                    // First show any running servers
+                                    for server in &configs.servers {
+                                        if let Some(status) = server_statuses.get(&server.id) {
+                                            let status_class = match status {
+                                                ServerStatus::Running => "server-status-item running",
+                                                ServerStatus::Failed(_) => "server-status-item failed",
+                                                ServerStatus::Stopped => "server-status-item stopped",
+                                                ServerStatus::Starting => "server-status-item starting",
+                                            };
+                                            
+                                            let status_text = match status {
+                                                ServerStatus::Running => "Running",
+                                                ServerStatus::Failed(_) => "Failed",
+                                                ServerStatus::Stopped => "Stopped",
+                                                ServerStatus::Starting => "Starting",
+                                            };
+                                            
+                                            let error_icon = if let ServerStatus::Failed(error) = status {
+                                                Some(error.clone())
+                                            } else {
+                                                None
+                                            };
+                                            
+                                            rsx! {
+                                                div { 
+                                                    key: "{server.id}",
+                                                    class: status_class,
+                                                    div {
+                                                        class: "server-status-name",
+                                                        "{server.name}"
+                                                    }
+                                                    div {
+                                                        class: "server-status-value",
+                                                        "{status_text}"
+                                                        if let Some(error_msg) = error_icon {
+                                                            span {
+                                                                class: "server-status-error",
+                                                                title: "{error_msg}",
+                                                                "!"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            };
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
 

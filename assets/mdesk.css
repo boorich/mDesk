@@ -1552,3 +1552,251 @@ textarea.form-control {
     margin-top: 0.5rem;
     font-size: 1.1rem;
 }
+
+/* Status List - Server Status Styles */
+.server-status-list {
+    background-color: rgba(255,255,255,0.05);
+    border-radius: var(--border-radius);
+    padding: 16px;
+    margin-bottom: 16px;
+}
+
+.server-status-heading {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: rgba(255,255,255,0.8);
+}
+
+.server-status-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    border-radius: var(--border-radius);
+    font-size: 14px;
+    background-color: rgba(0,0,0,0.2);
+    border-left: 4px solid transparent;
+}
+
+.server-status-item.running {
+    border-left-color: var(--success-color);
+}
+
+.server-status-item.failed {
+    border-left-color: var(--error-color);
+}
+
+.server-status-item.stopped {
+    border-left-color: var(--text-color-light);
+}
+
+.server-status-item.starting {
+    border-left-color: var(--warning-color);
+}
+
+.server-status-name {
+    font-weight: 500;
+    max-width: 130px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.server-status-value {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+}
+
+.server-status-item.running .server-status-value {
+    color: var(--success-color);
+}
+
+.server-status-item.failed .server-status-value {
+    color: var(--error-color);
+}
+
+.server-status-item.stopped .server-status-value {
+    color: var(--text-color-light);
+}
+
+.server-status-item.starting .server-status-value {
+    color: var(--warning-color);
+}
+
+.server-status-error {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background-color: rgba(239, 68, 68, 0.2);
+    color: var(--error-color);
+    font-size: 10px;
+    font-weight: bold;
+    cursor: help;
+}
+
+/* Tool Test Button */
+.tool-test-button {
+    margin-top: 12px;
+    padding: 8px 16px;
+    background-color: var(--primary-color);
+    color: #fff;
+    border: none;
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: background-color 0.2s;
+}
+
+.tool-test-button:hover {
+    background-color: var(--primary-color-dark);
+}
+
+/* Dialog Overlay */
+.dialog-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    animation: fadeIn 0.2s ease-out;
+}
+
+/* Tool Test Dialog */
+.tool-test-dialog {
+    background-color: var(--sidebar-color);
+    color: var(--sidebar-text);
+    border-radius: var(--border-radius);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+    width: 90%;
+    max-width: 700px;
+    max-height: 80vh;
+    overflow-y: auto;
+    animation: dialogSlide 0.3s ease-out;
+}
+
+@keyframes dialogSlide {
+    from { opacity: 0; transform: translateY(-20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.dialog-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.dialog-title {
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.dialog-close {
+    background: none;
+    border: none;
+    font-size: 24px;
+    color: var(--sidebar-text);
+    cursor: pointer;
+    line-height: 1;
+}
+
+.dialog-content {
+    padding: 20px;
+}
+
+.dialog-footer {
+    display: flex;
+    justify-content: flex-end;
+    padding: 16px 20px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    gap: 12px;
+}
+
+.form-group {
+    margin-bottom: 16px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 500;
+}
+
+.form-control {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: var(--border-radius);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background-color: rgba(0, 0, 0, 0.2);
+    color: var(--sidebar-text);
+    font-family: monospace;
+    font-size: 14px;
+}
+
+.tool-result {
+    background-color: rgba(0, 0, 0, 0.2);
+    padding: 12px;
+    border-radius: var(--border-radius);
+    font-family: monospace;
+    max-height: 300px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.tool-result.error {
+    background-color: rgba(239, 68, 68, 0.1);
+    color: var(--error-color);
+}
+
+.btn-cancel {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: var(--sidebar-text);
+    border: none;
+    border-radius: var(--border-radius);
+    padding: 8px 16px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s;
+}
+
+.btn-cancel:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+.btn-submit {
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: var(--border-radius);
+    padding: 8px 16px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s;
+}
+
+.btn-submit:hover:not(:disabled) {
+    background-color: var(--primary-color-dark);
+}
+
+.btn-submit:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
