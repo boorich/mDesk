@@ -31,8 +31,8 @@ This document outlines the next steps for developing mDesk, a native desktop app
 ### 3. MCP Integration Improvements
 - [x] Enhance error handling for MCP client connections
 - [x] Implement proper loading states during MCP operations
-- [ ] Add persistent storage for MCP connection settings
-- [ ] Create a configuration panel for customizing MCP server settings
+- [x] Add persistent storage for MCP connection settings
+- [x] Create a configuration panel for customizing MCP server settings
 
 ### 4. UI & UX Enhancements
 - [ ] Add animations for state transitions
@@ -52,7 +52,7 @@ This document outlines the next steps for developing mDesk, a native desktop app
 ### 6. Tools Enhancement
 - [ ] Create a detailed view for each tool
 - [ ] Implement tool execution UI with parameter inputs
-- [ ] Add result visualization for tool outputs
+- [x] Add result visualization for tool outputs
 - [ ] Create tool favorites or recently used section
 
 ### 7. Performance Optimization
