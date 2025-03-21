@@ -371,4 +371,42 @@
     background-color: rgba(0, 0, 0, 0.1);
     border-radius: 8px;
     border: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+/* Server Tools View Styles */
+.server-tools-container {
+    display: flex;
+    flex-direction: column;
+    gap: 30px;
+}
+
+.server-tools-group {
+    background-color: rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
+    padding: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.server-tools-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.server-name {
+    font-size: 18px;
+    font-weight: 500;
+    color: #fff;
+    margin: 0;
+}
+
+.tool-count {
+    font-size: 14px;
+    color: #aaa;
+    background-color: rgba(0, 0, 0, 0.2);
+    padding: 3px 10px;
+    border-radius: 12px;
 } 

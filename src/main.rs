@@ -5,11 +5,12 @@ use mcp_client::{
     Transport,
 };
 use mcp_core::{protocol::JsonRpcMessage, Resource as McpResource, Tool};
-use std::{collections::HashMap, sync::Arc, time::Duration, env};
+use std::{collections::HashMap, sync::Arc, time::Duration, env, path::Path};
 use tokio::sync::Mutex;
 use tower::{timeout::Timeout, ServiceExt};
 use serde_json::Value;
 use dotenv::dotenv;
+use crate::server_config::{ServerConfigs};
 
 mod components;
 mod openrouter;
@@ -431,7 +432,7 @@ fn McpDemo() -> Element {
     // Wrapper function for use in UI events
     let list_tools = {
         let mut fetch_tools = fetch_tools.clone();
-        move |_| {
+        move |_: ()| {
             fetch_tools();
         }
     };
@@ -1155,115 +1156,221 @@ fn McpDemo() -> Element {
                 div { class: if *active_section.read() == "tools" { "content-section active" } else { "content-section" },
                     div { class: "section-header",
                         h1 { class: "section-title", "MCP Tools" }
-                        p { class: "section-description", "Discover available tools in the MCP server" }
+                        p { class: "section-description", "Discover available tools across all running MCP servers" }
                     }
 
                     div { class: "tools-container",
-                        if tools.read().is_empty() {
-                            div { class: "empty-state",
-                                svg {
-                                    class: "empty-icon",
-                                    xmlns: "http://www.w3.org/2000/svg",
-                                    width: "48",
-                                    height: "48",
-                                    view_box: "0 0 24 24",
-                                    fill: "none",
-                                    stroke: "currentColor",
-                                    stroke_width: "1",
-                                    stroke_linecap: "round",
-                                    stroke_linejoin: "round",
-                                    path {
-                                        d: "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
+                        {
+                            let running_servers = mcp_state.read().active_clients.len();
+                            
+                            if running_servers == 0 {
+                                rsx! {
+                                    div { class: "empty-state",
+                                        svg {
+                                            class: "empty-icon",
+                                            xmlns: "http://www.w3.org/2000/svg",
+                                            width: "48",
+                                            height: "48",
+                                            view_box: "0 0 24 24",
+                                            fill: "none",
+                                            stroke: "currentColor",
+                                            stroke_width: "1",
+                                            stroke_linecap: "round",
+                                            stroke_linejoin: "round",
+                                            path {
+                                                d: "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
+                                            }
+                                        }
+                                        div { class: "empty-title", "No Running Servers" }
+                                        div { class: "empty-message", "Start at least one server to view available tools." }
+                                        button {
+                                            class: "reload-button",
+                                            onclick: move |_| {
+                                                active_section.set("servers");
+                                            },
+                                            svg {
+                                                class: "button-icon",
+                                                xmlns: "http://www.w3.org/2000/svg",
+                                                width: "16",
+                                                height: "16",
+                                                view_box: "0 0 24 24",
+                                                fill: "none",
+                                                stroke: "currentColor",
+                                                stroke_width: "2",
+                                                stroke_linecap: "round",
+                                                stroke_linejoin: "round",
+                                                path {
+                                                    d: "M12 5v14M5 12h14"
+                                                }
+                                            }
+                                            "Go to Server Management"
+                                        }
                                     }
                                 }
-                                div { class: "empty-title", "No Tools Found" }
-                                div { class: "empty-message", "There are currently no tools available in the MCP server." }
-                                button {
-                                    class: "reload-button",
-                                    onclick: move |_| {
-                                        let mut list_tools_clone = list_tools.clone();
-                                        list_tools_clone(());
-                                    },
-                                    svg {
-                                        class: "button-icon",
-                                        xmlns: "http://www.w3.org/2000/svg",
-                                        width: "16",
-                                        height: "16",
-                                        view_box: "0 0 24 24",
-                                        fill: "none",
-                                        stroke: "currentColor",
-                                        stroke_width: "2",
-                                        stroke_linecap: "round",
-                                        stroke_linejoin: "round",
-                                        path {
-                                            d: "M23 4v6h-6"
-                                        }
-                                        path {
-                                            d: "M1 20v-6h6"
-                                        }
-                                        path {
-                                            d: "M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"
-                                        }
-                                    }
-                                    "Reload Tools"
-                                }
-                            }
-                        } else {
-                            div { class: "tools-grid",
-                                for tool in tools.read().iter() {
-                                    div {
-                                        key: format!("tool-{}", &tool.name),
-                                        class: "tool-card",
-                                        div { class: "tool-header",
-                                            div { class: "tool-icon",
-                                                svg {
-                                                    xmlns: "http://www.w3.org/2000/svg",
-                                                    width: "20",
-                                                    height: "20",
-                                                    view_box: "0 0 24 24",
-                                                    fill: "none",
-                                                    stroke: "currentColor",
-                                                    stroke_width: "2",
-                                                    stroke_linecap: "round",
-                                                    stroke_linejoin: "round",
-                                                    path {
-                                                        d: "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
+                            } else {
+                                // Server tools section
+                                let mut server_tools = use_signal(|| HashMap::<String, Vec<Tool>>::new());
+                                
+                                let load_server_tools = move |server_id: String| {
+                                    let client_opt = mcp_state.read().active_clients.get(&server_id).cloned();
+                                    
+                                    if let Some(client) = client_opt {
+                                        spawn({
+                                            to_owned![server_id, server_tools];
+                                            async move {
+                                                let client_lock = client.lock().await;
+                                                
+                                                match client_lock.list_tools(None).await {
+                                                    Ok(result) => {
+                                                        let mut map = server_tools.write();
+                                                        map.insert(server_id.clone(), result.tools);
+                                                    }
+                                                    Err(e) => {
+                                                        eprintln!("Failed to load tools for server {}: {}", server_id, e);
                                                     }
                                                 }
                                             }
-                                            h3 { class: "tool-name", "{tool.name}" }
-                                        }
-                                        p { class: "tool-description", "{tool.description}" }
-                                        div { class: "tool-schema",
-                                            h4 { class: "schema-title", "Parameters" }
-                                            pre { class: "schema-content", 
-                                                "{tool.input_schema}" 
+                                        });
+                                    }
+                                };
+                                
+                                // Load tools for all running servers
+                                use_effect(move || {
+                                    for server_id in mcp_state.read().active_clients.keys() {
+                                        load_server_tools(server_id.clone());
+                                    }
+                                });
+                                
+                                let server_ids: Vec<String> = mcp_state.read().active_clients.keys().cloned().collect();
+                                
+                                if server_tools.read().is_empty() {
+                                    rsx! {
+                                        div { class: "empty-state",
+                                            svg {
+                                                class: "empty-icon",
+                                                xmlns: "http://www.w3.org/2000/svg",
+                                                width: "48",
+                                                height: "48",
+                                                view_box: "0 0 24 24",
+                                                fill: "none",
+                                                stroke: "currentColor",
+                                                stroke_width: "1",
+                                                stroke_linecap: "round",
+                                                stroke_linejoin: "round",
+                                                path {
+                                                    d: "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
+                                                }
                                             }
+                                            div { class: "empty-title", "Loading Tools..." }
+                                            div { class: "empty-message", "Retrieving tools from available servers." }
                                         }
-                                        
-                                        // Add Test Tool button
-                                        {
-                                            let tool_clone = tool.clone();
-                                            
-                                            rsx! {
-                                                button {
-                                                    class: "tool-test-button",
-                                                    onclick: move |_| active_tool_modal.set(Some(tool_clone.clone())),
-                                                    svg {
-                                                        xmlns: "http://www.w3.org/2000/svg",
-                                                        width: "16",
-                                                        height: "16",
-                                                        view_box: "0 0 24 24",
-                                                        fill: "none",
-                                                        stroke: "currentColor",
-                                                        stroke_width: "2",
-                                                        stroke_linecap: "round",
-                                                        stroke_linejoin: "round",
-                                                        path { d: "M22 11.08V12a10 10 0 1 1-5.93-9.14" }
-                                                        polyline { points: "22 4 12 14.01 9 11.01" }
+                                    }
+                                } else {
+                                    rsx! {
+                                        div { class: "server-tools-container",
+                                            for server_id in server_ids.iter() {
+                                                {
+                                                    let server_tools_map = server_tools.read();
+                                                    let server_tools_opt = server_tools_map.get(server_id);
+
+                                                    if let Some(tools) = server_tools_opt {
+                                                        if !tools.is_empty() {
+                                                            // Get server name
+                                                            let server_name = {
+                                                                let configs = ServerConfigs::load_from_file(Path::new("servers.json"))
+                                                                    .unwrap_or_default();
+                                                                let server_config = configs.get_by_id(server_id);
+                                                                
+                                                                server_config.map(|c| c.name.clone())
+                                                                    .unwrap_or_else(|| server_id.clone())
+                                                            };
+                                                            
+                                                            rsx! {
+                                                                div { class: "server-tools-group",
+                                                                    div { class: "server-tools-header",
+                                                                        h2 { class: "server-name", "{server_name}" }
+                                                                        span { class: "tool-count", "{tools.len()} tools available" }
+                                                                    }
+                                                                    
+                                                                    div { class: "tools-grid",
+                                                                        for tool in tools.iter() {
+                                                                            div {
+                                                                                key: format!("tool-{}-{}", server_id, &tool.name),
+                                                                                class: "tool-card",
+                                                                                div { class: "tool-header",
+                                                                                    div { class: "tool-icon",
+                                                                                        svg {
+                                                                                            xmlns: "http://www.w3.org/2000/svg",
+                                                                                            width: "20",
+                                                                                            height: "20",
+                                                                                            view_box: "0 0 24 24",
+                                                                                            fill: "none",
+                                                                                            stroke: "currentColor",
+                                                                                            stroke_width: "2",
+                                                                                            stroke_linecap: "round",
+                                                                                            stroke_linejoin: "round",
+                                                                                            path {
+                                                                                                d: "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
+                                                                                            }
+                                                                                        }
+                                                                                    }
+                                                                                    h3 { class: "tool-name", "{tool.name}" }
+                                                                                }
+                                                                                p { class: "tool-description", "{tool.description}" }
+                                                                                div { class: "tool-schema",
+                                                                                    h4 { class: "schema-title", "Parameters" }
+                                                                                    pre { class: "schema-content", 
+                                                                                        "{tool.input_schema}" 
+                                                                                    }
+                                                                                }
+                                                                                
+                                                                                // Test Tool button
+                                                                                {
+                                                                                    let tool_clone = tool.clone();
+                                                                                    let server_id_clone = server_id.clone();
+                                                                                    
+                                                                                    rsx! {
+                                                                                        button {
+                                                                                            class: "tool-test-button",
+                                                                                            onclick: move |_| {
+                                                                                                // Set the client for this server
+                                                                                                let client_opt = mcp_state.read().active_clients.get(&server_id_clone).cloned();
+                                                                                                
+                                                                                                if let Some(client) = client_opt {
+                                                                                                    // Temporarily set as active client
+                                                                                                    mcp_state.write().client = Some(client);
+                                                                                                    active_tool_modal.set(Some(tool_clone.clone()));
+                                                                                                }
+                                                                                            },
+                                                                                            svg {
+                                                                                                xmlns: "http://www.w3.org/2000/svg",
+                                                                                                width: "16",
+                                                                                                height: "16",
+                                                                                                view_box: "0 0 24 24",
+                                                                                                fill: "none",
+                                                                                                stroke: "currentColor",
+                                                                                                stroke_width: "2",
+                                                                                                stroke_linecap: "round",
+                                                                                                stroke_linejoin: "round",
+                                                                                                path { d: "M22 11.08V12a10 10 0 1 1-5.93-9.14" }
+                                                                                                polyline { points: "22 4 12 14.01 9 11.01" }
+                                                                                            }
+                                                                                            "Test Tool"
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        } else {
+                                                            rsx! {}
+                                                        }
+                                                    } else {
+                                                        rsx! {}
                                                     }
-                                                    "Test Tool"
-                                                } 
+                                                }
                                             }
                                         }
                                     }
