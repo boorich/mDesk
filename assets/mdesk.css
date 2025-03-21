@@ -1555,90 +1555,92 @@ textarea.form-control {
 
 /* Status List - Server Status Styles */
 .server-status-list {
-    background-color: rgba(255,255,255,0.05);
-    border-radius: var(--border-radius);
-    padding: 16px;
-    margin-bottom: 16px;
+    margin-top: 10px;
+    padding: 10px;
+    background-color: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+    overflow-y: auto;
+    max-height: 200px;
 }
 
 .server-status-heading {
-    font-size: 13px;
-    font-weight: 600;
-    margin-bottom: 12px;
-    color: rgba(255,255,255,0.8);
+    font-size: 0.85em;
+    color: #aaa;
+    margin-bottom: 8px;
+    font-weight: 500;
 }
 
 .server-status-item {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 10px 12px;
-    margin-bottom: 8px;
-    border-radius: var(--border-radius);
-    font-size: 14px;
-    background-color: rgba(0,0,0,0.2);
-    border-left: 4px solid transparent;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    border-radius: 4px;
+    background-color: rgba(255, 255, 255, 0.08);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
 }
 
-.server-status-item.running {
-    border-left-color: var(--success-color);
+.server-status-item:hover {
+    background-color: rgba(255, 255, 255, 0.15);
 }
 
-.server-status-item.failed {
-    border-left-color: var(--error-color);
-}
-
-.server-status-item.stopped {
-    border-left-color: var(--text-color-light);
-}
-
-.server-status-item.starting {
-    border-left-color: var(--warning-color);
+.server-status-item.selected {
+    background-color: rgba(53, 130, 222, 0.25);
+    border-left: 3px solid #3582de;
 }
 
 .server-status-name {
     font-weight: 500;
-    max-width: 130px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    font-size: 0.9em;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.selected-indicator {
+    font-size: 0.8em;
+    color: #3582de;
+    font-weight: bold;
 }
 
 .server-status-value {
+    font-size: 0.85em;
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-size: 13px;
-}
-
-.server-status-item.running .server-status-value {
-    color: var(--success-color);
-}
-
-.server-status-item.failed .server-status-value {
-    color: var(--error-color);
-}
-
-.server-status-item.stopped .server-status-value {
-    color: var(--text-color-light);
-}
-
-.server-status-item.starting .server-status-value {
-    color: var(--warning-color);
+    gap: 4px;
 }
 
 .server-status-error {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 20px;
-    height: 20px;
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    line-height: 16px;
+    text-align: center;
+    background-color: #e74c3c;
+    color: white;
     border-radius: 50%;
-    background-color: rgba(239, 68, 68, 0.2);
-    color: var(--error-color);
-    font-size: 10px;
+    font-size: 0.7em;
     font-weight: bold;
     cursor: help;
+}
+
+.server-status-item.running {
+    border-left: 3px solid #2ecc71;
+}
+
+.server-status-item.failed {
+    border-left: 3px solid #e74c3c;
+}
+
+.server-status-item.stopped {
+    border-left: 3px solid #95a5a6;
+}
+
+.server-status-item.starting {
+    border-left: 3px solid #f39c12;
 }
 
 /* Tool Test Button */

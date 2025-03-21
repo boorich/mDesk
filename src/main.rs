@@ -654,76 +654,119 @@ fn McpDemo() -> Element {
                     div { class: "status-card",
                         div { 
                             class: {
-                                match client_status.read().as_str() {
-                                    "Not initialized" => "status-dot offline",
-                                    "Error" => "status-dot error",
-                                    _ => "status-dot online"
+                                // Check if any servers are running for the main status indicator
+                                let any_running = mcp_state.read().server_status.iter()
+                                    .any(|(_, status)| matches!(status, ServerStatus::Running));
+                                
+                                if any_running {
+                                    "status-dot online"
+                                } else if mcp_state.read().server_status.iter()
+                                    .any(|(_, status)| matches!(status, ServerStatus::Failed(_))) {
+                                    "status-dot error"
+                                } else if mcp_state.read().server_status.iter()
+                                    .any(|(_, status)| matches!(status, ServerStatus::Starting)) {
+                                    "status-dot starting"
+                                } else {
+                                    "status-dot offline"
                                 }
                             }
                         }
                         div { class: "status-info",
                             div { class: "status-label", "Status" }
-                            div { class: "status-value", "{client_status}" }
+                            div { class: "status-value", 
+                                {
+                                    let running_count = mcp_state.read().server_status.iter()
+                                        .filter(|(_, status)| matches!(status, ServerStatus::Running))
+                                        .count();
+                                    
+                                    if running_count > 0 {
+                                        format!("{} server{} running", running_count, if running_count > 1 { "s" } else { "" })
+                                    } else {
+                                        "No servers running".to_string()
+                                    }
+                                }
+                            }
                         }
                     }
 
-                    // Show a list of individual server statuses when at least one server has been configured
-                    if !mcp_state.read().server_status.is_empty() {
-                        div { class: "server-status-list",
-                            div { class: "server-status-heading", "Individual Servers" }
+                    // Show a list of all servers from servers.json with their status
+                    div { class: "server-status-list",
+                        div { class: "server-status-heading", "Individual Servers" }
+                        
+                        // Load all server configs from servers.json
+                        {
+                            // Get the statuses for comparison
+                            let server_statuses = mcp_state.read().server_status.clone();
+                            let selected_server = mcp_state.read().selected_server.clone();
                             
-                            // Load all server configs to get names
-                            {
-                                let server_statuses = mcp_state.read().server_status.clone();
-                                let configs_result = server_config::ServerConfigs::load_from_file("servers.json");
-                                
-                                if let Ok(configs) = configs_result {
-                                    // First show any running servers
-                                    for server in &configs.servers {
-                                        if let Some(status) = server_statuses.get(&server.id) {
-                                            let status_class = match status {
-                                                ServerStatus::Running => "server-status-item running",
-                                                ServerStatus::Failed(_) => "server-status-item failed",
-                                                ServerStatus::Stopped => "server-status-item stopped",
-                                                ServerStatus::Starting => "server-status-item starting",
-                                            };
-                                            
-                                            let status_text = match status {
-                                                ServerStatus::Running => "Running",
-                                                ServerStatus::Failed(_) => "Failed",
-                                                ServerStatus::Stopped => "Stopped",
-                                                ServerStatus::Starting => "Starting",
-                                            };
-                                            
-                                            let error_icon = if let ServerStatus::Failed(error) = status {
-                                                Some(error.clone())
-                                            } else {
-                                                None
-                                            };
-                                            
-                                            rsx! {
-                                                div { 
-                                                    key: "{server.id}",
-                                                    class: status_class,
-                                                    div {
-                                                        class: "server-status-name",
-                                                        "{server.name}"
-                                                    }
-                                                    div {
-                                                        class: "server-status-value",
-                                                        "{status_text}"
-                                                        if let Some(error_msg) = error_icon {
-                                                            span {
-                                                                class: "server-status-error",
-                                                                title: "{error_msg}",
-                                                                "!"
-                                                            }
-                                                        }
+                            // Load all configs from the file
+                            let configs_result = server_config::ServerConfigs::load_from_file("servers.json");
+                            
+                            if let Ok(configs) = configs_result {
+                                // Show all servers from config file
+                                for server in &configs.servers {
+                                    // Get the server status (default to Stopped if not found)
+                                    let status = server_statuses.get(&server.id).cloned().unwrap_or(ServerStatus::Stopped);
+                                    let is_selected = selected_server.as_ref().map_or(false, |s| s.id == server.id);
+                                    
+                                    let status_class = {
+                                        let base_class = match status {
+                                            ServerStatus::Running => "server-status-item running",
+                                            ServerStatus::Failed(_) => "server-status-item failed",
+                                            ServerStatus::Stopped => "server-status-item stopped",
+                                            ServerStatus::Starting => "server-status-item starting",
+                                        };
+                                        if is_selected {
+                                            format!("{} selected", base_class)
+                                        } else {
+                                            base_class.to_string()
+                                        }
+                                    };
+                                    
+                                    let status_text = match status {
+                                        ServerStatus::Running => "Running",
+                                        ServerStatus::Failed(_) => "Failed",
+                                        ServerStatus::Stopped => "Stopped",
+                                        ServerStatus::Starting => "Starting",
+                                    };
+                                    
+                                    let error_icon = if let ServerStatus::Failed(error) = &status {
+                                        Some(error.clone())
+                                    } else {
+                                        None
+                                    };
+                                    
+                                    rsx! {
+                                        div { 
+                                            key: "{server.id}",
+                                            class: status_class,
+                                            onclick: {
+                                                let server_config = server.clone();
+                                                let mut on_select_server = select_server.clone();
+                                                move |_| {
+                                                    on_select_server(server_config.clone());
+                                                }
+                                            },
+                                            div {
+                                                class: "server-status-name",
+                                                "{server.name}"
+                                                if is_selected {
+                                                    span { class: "selected-indicator", "✓" }
+                                                }
+                                            }
+                                            div {
+                                                class: "server-status-value",
+                                                "{status_text}"
+                                                if let Some(error_msg) = error_icon {
+                                                    span {
+                                                        class: "server-status-error",
+                                                        title: "{error_msg}",
+                                                        "!"
                                                     }
                                                 }
-                                            };
+                                            }
                                         }
-                                    }
+                                    };
                                 }
                             }
                         }
@@ -766,9 +809,9 @@ fn McpDemo() -> Element {
                         }
                         
                         if mcp_state.read().client.is_some() {
-                            "Stop Server"
+                            "Stop All Servers"
                         } else {
-                            "Start Server"
+                            "Start All Servers"
                         }
                     }
                 }
