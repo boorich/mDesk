@@ -358,25 +358,36 @@ fn McpDemo() -> Element {
     };
     
     // List resources using real client
-    let mut list_resources = move |_| {
-        if let Some(client) = &mcp_state.read().client {
+    let mut list_resources = move |_: ()| {
+        if mcp_state.read().active_clients.is_empty() {
+            error_message.set(Some("No active servers. Please start at least one server.".to_string()));
+            return;
+        }
+        
+        // Use a separate effect to update these signals to avoid infinite rerenders
+        use_effect(move || {
             client_status.set("Fetching resources...".to_string());
             error_message.set(None);
             show_resources.set(true);
             show_tools.set(false);
-            active_section.set("resources");
-            
-            // Debug log the tools before passing them to the chat
-            eprintln!("Tools available in main.rs before passing to ChatTab: {}", tools.read().len());
-            for tool in tools.read().iter() {
-                eprintln!("  - Available Tool: {} ({})", tool.name, tool.description);
-            }
-            
-            spawn({
-                to_owned![client, client_status, error_message, resources];
-                async move {
-                    let client = client.lock().await;
-                    match client.list_resources(None).await {
+        });
+        
+        spawn({
+            to_owned![mcp_state, client_status, error_message, resources];
+            async move {
+                // If we have active clients but no selected client, use the first available client
+                let client_to_use = if mcp_state.read().client.is_none() && !mcp_state.read().active_clients.is_empty() {
+                    // Get the first client from active_clients
+                    let first_server_id = mcp_state.read().active_clients.keys().next().cloned();
+                    first_server_id.and_then(|id| mcp_state.read().active_clients.get(&id).cloned())
+                } else {
+                    mcp_state.read().client.clone()
+                };
+                
+                if let Some(client) = client_to_use {
+                    let client_lock = client.lock().await;
+                    
+                    match client_lock.list_resources(None).await {
                         Ok(result) => {
                             resources.set(result.resources);
                             client_status.set("Connected to MCP Server v1.0".to_string());
@@ -386,45 +397,28 @@ fn McpDemo() -> Element {
                             error_message.set(Some(format!("Failed to list resources: {}", e)));
                         }
                     }
+                } else {
+                    error_message.set(Some("Client not initialized".to_string()));
                 }
-            });
-        } else {
-            error_message.set(Some("Client not initialized".to_string()));
-        }
+            }
+        });
     };
     
     // Create a new function to load tools that can be called from multiple places
     let mut fetch_tools = {
         to_owned![mcp_state, client_status, error_message, tools, show_tools, show_resources];
         move || {
-            if mcp_state.read().client.is_none() {
-                error_message.set(Some("Client not initialized".to_string()));
+            if mcp_state.read().active_clients.is_empty() {
+                error_message.set(Some("No active servers. Please start at least one server.".to_string()));
                 return;
             }
             
-            client_status.set("Fetching tools...".to_string());
-            error_message.set(None);
-            show_tools.set(true);
-            show_resources.set(false);
-            
-            spawn({
-                to_owned![mcp_state, client_status, error_message, tools];
-                async move {
-                    if let Some(ref client) = mcp_state.read().client {
-                        let client_lock = client.lock().await;
-                        
-                        match client_lock.list_tools(None).await {
-                            Ok(result) => {
-                                tools.set(result.tools);
-                                client_status.set("Connected to MCP Server v1.0".to_string());
-                            }
-                            Err(e) => {
-                                client_status.set("Error".to_string());
-                                error_message.set(Some(format!("Failed to list tools: {}", e)));
-                            }
-                        }
-                    }
-                }
+            // Use a separate effect to update these signals to avoid infinite rerenders
+            use_effect(move || {
+                client_status.set("Fetching tools...".to_string());
+                error_message.set(None);
+                show_tools.set(true);
+                show_resources.set(false);
             });
         }
     };
@@ -556,7 +550,7 @@ fn McpDemo() -> Element {
                     button {
                         class: if *active_section.read() == "resources" { "nav-item active" } else { "nav-item" },
                         onclick: set_section("resources"),
-                        disabled: mcp_state.read().client.is_none(),
+                        disabled: mcp_state.read().active_clients.is_empty(),
                         svg {
                             class: "nav-icon",
                             xmlns: "http://www.w3.org/2000/svg",
@@ -587,7 +581,7 @@ fn McpDemo() -> Element {
                     button {
                         class: if *active_section.read() == "tools" { "nav-item active" } else { "nav-item" },
                         onclick: set_section("tools"),
-                        disabled: mcp_state.read().client.is_none(),
+                        disabled: mcp_state.read().active_clients.is_empty(),
                         svg {
                             class: "nav-icon",
                             xmlns: "http://www.w3.org/2000/svg",
