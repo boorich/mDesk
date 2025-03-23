@@ -168,8 +168,32 @@ html, body {
 }
 
 .status-value {
-    font-size: 16px;
-    font-weight: 500;
+    font-weight: 600;
+    color: rgba(255,255,255,0.9);
+}
+
+.running-servers-list {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.running-server-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85em;
+    color: rgba(255,255,255,0.8);
+    padding: 3px 0;
+}
+
+.running-server-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: #2ecc71;
 }
 
 .action-button {

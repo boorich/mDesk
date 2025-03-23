@@ -686,6 +686,47 @@ fn McpDemo() -> Element {
                                     }
                                 }
                             }
+                            
+                            // Show the names of running servers
+                            {
+                                let server_statuses = mcp_state.read().server_status.clone();
+                                let running_server_ids: Vec<String> = server_statuses.iter()
+                                    .filter(|(_, status)| matches!(status, ServerStatus::Running))
+                                    .map(|(id, _)| id.clone())
+                                    .collect();
+                                
+                                if !running_server_ids.is_empty() {
+                                    // Load server configs to get names
+                                    if let Ok(configs) = server_config::ServerConfigs::load_from_file("servers.json") {
+                                        rsx! {
+                                            div { class: "running-servers-list",
+                                                for id in running_server_ids {
+                                                    if let Some(server) = configs.get_by_id(&id) {
+                                                        div { class: "running-server-item", 
+                                                            span { class: "running-server-dot" }
+                                                            "{server.name}" 
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        // If we can't load configs, just show IDs
+                                        rsx! {
+                                            div { class: "running-servers-list",
+                                                for id in running_server_ids {
+                                                    div { class: "running-server-item", 
+                                                        span { class: "running-server-dot" }
+                                                        "{id}" 
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    rsx! {}
+                                }
+                            }
                         }
                     }
 
