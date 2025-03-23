@@ -18,7 +18,7 @@ A native desktop application for managing MCP (Model Context Protocol) tools wit
 
 - [Rust](https://www.rust-lang.org/tools/install) (latest stable)
 - [Dioxus CLI](https://dioxuslabs.com/learn/0.6/CLI/installation) for running the application
-- Docker (for running MCP servers)
+- Respective environments for running [MCP servers](https://github.com/modelcontextprotocol/servers)
 
 ### Installation
 
@@ -28,20 +28,19 @@ A native desktop application for managing MCP (Model Context Protocol) tools wit
    cd mDesk
    ```
 
-2. Create configuration files:
+2. Create an environment file:
    ```bash
    # Create .env file with your OpenRouter API key
    echo "OPENROUTER_API_KEY=your_api_key_here" > .env
-   
-   # Create servers.json with your MCP server config
-   # See example in the docs folder
    ```
 
-3. Build and run:
+3. Run the application:
    ```bash
    # Run the application with Dioxus CLI
    dx serve --platform desktop
    ```
+
+The application will automatically create a default server configuration on first run.
 
 ## Development
 
@@ -62,9 +61,11 @@ Create a `.env` file in the project root with:
 OPENROUTER_API_KEY=your_openrouter_api_key
 ```
 
-### MCP Servers Configuration
+### Server Configuration
 
-Create a `servers.json` file in the project root to configure your MCP servers:
+The application will automatically create a default `servers.json` file on first run. You can add, edit, or remove server configurations through the Server Settings tab in the application.
+
+If you want to manually configure servers before running the application, you can create a `servers.json` file:
 
 ```json
 {
