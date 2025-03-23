@@ -33,17 +33,32 @@ pub fn ToolTestModal(props: ToolTestModalProps) -> Element {
             
         if let Some(properties) = schema.get("properties") {
             if let Some(props_obj) = properties.as_object() {
-                let template = props_obj.keys().fold(json!({}), |mut obj, key| {
-                    obj[key] = json!(""); // Add empty string value for each property
-                    obj
-                });
+                let mut template = json!({});
+                
+                // Include each property with appropriate default values by type
+                for (key, value) in props_obj {
+                    // Get the type of the property
+                    let prop_type = value.get("type").and_then(|t| t.as_str()).unwrap_or("string");
+                    
+                    // Set appropriate defaults based on type
+                    match prop_type {
+                        "string" => { template[key] = json!(""); }
+                        "number" => { template[key] = json!(0); }
+                        "boolean" => { template[key] = json!(false); }
+                        "array" => { template[key] = json!([]); }
+                        "object" => { template[key] = json!({}); }
+                        _ => { template[key] = json!(""); }
+                    }
+                }
+                
+                // Format with pretty-print and indentation
                 tool_params.set(serde_json::to_string_pretty(&template).unwrap_or_else(|_| "{}".to_string()));
                 return;
             }
         }
         
         // Fallback to empty object
-        tool_params.set("{}".to_string());
+        tool_params.set("{\n}".to_string());
     });
     
     // Handle test execution

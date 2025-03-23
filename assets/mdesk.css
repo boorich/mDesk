@@ -1548,22 +1548,26 @@ html, body {
 }
 
 .form-control {
-    padding: 0.75rem;
-    border: 1px solid rgba(0, 0, 0, 0.1);
-    border-radius: var(--border-radius);
-    font-size: 1rem;
     width: 100%;
-    transition: border-color 0.2s ease;
+    padding: 12px;
+    border-radius: var(--border-radius);
+    border: 1px solid #e2e8f0;
+    background-color: #f8fafc;
+    font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 14px;
+    resize: vertical;
+    min-height: 120px;
+    color: #333;
 }
 
 .form-control:focus {
     outline: none;
-    border-color: var(--primary-color-light);
-    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(66, 153, 225, 0.2);
 }
 
 .form-control::placeholder {
-    color: rgba(0, 0, 0, 0.3);
+    color: #a0aec0;
 }
 
 textarea.form-control {
@@ -1856,7 +1860,7 @@ textarea.form-control {
 }
 
 .tool-test-dialog {
-    background-color: var(--card-color);
+    background-color: #ffffff;
     border-radius: var(--border-radius);
     box-shadow: var(--shadow-lg);
     width: 90%;
@@ -1923,10 +1927,22 @@ textarea.form-control {
     padding: 12px;
     border-radius: var(--border-radius);
     border: 1px solid #e2e8f0;
+    background-color: #f8fafc;
     font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 14px;
     resize: vertical;
     min-height: 120px;
+    color: #333;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(66, 153, 225, 0.2);
+}
+
+.form-control::placeholder {
+    color: #a0aec0;
 }
 
 .tool-result {
