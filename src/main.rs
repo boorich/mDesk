@@ -111,6 +111,63 @@ fn McpDemo() -> Element {
         format!("$ {:.2}", value)
     };
     
+    // Function to parse and format a tool's input schema for display
+    fn format_tool_parameters(schema: &serde_json::Value) -> Element {
+        // Default case if the schema isn't what we expect
+        let empty_result = rsx! { div { class: "param-empty", "No parameters required" } };
+        
+        // Check if schema has properties
+        if let Some(properties) = schema.get("properties") {
+            if let Some(props_obj) = properties.as_object() {
+                if props_obj.is_empty() {
+                    return empty_result;
+                }
+                
+                // Get required fields if available
+                let required_fields = if let Some(required) = schema.get("required") {
+                    if let Some(req_arr) = required.as_array() {
+                        req_arr.iter()
+                            .filter_map(|v| v.as_str())
+                            .collect::<Vec<&str>>()
+                    } else {
+                        Vec::new()
+                    }
+                } else {
+                    Vec::new()
+                };
+                
+                // Convert to a Vec for iteration in RSX
+                let params: Vec<_> = props_obj.iter().collect();
+                
+                return rsx! {
+                    div { class: "param-list",
+                        {params.into_iter().map(|(name, details)| {
+                            let is_required = required_fields.contains(&name.as_str());
+                            let param_type = details.get("type").and_then(|t| t.as_str()).unwrap_or("unknown");
+                            let description = details.get("description").and_then(|d| d.as_str()).unwrap_or("");
+                            
+                            rsx! {
+                                div { 
+                                    class: if is_required { "param-item required" } else { "param-item" },
+                                    div { class: "param-header",
+                                        span { class: "param-name", "{name}" }
+                                        span { class: "param-type", "{param_type}" }
+                                        if is_required {
+                                            span { class: "param-required", "required" }
+                                        }
+                                    }
+                                    div { class: "param-description", "{description}" }
+                                }
+                            }
+                        })}
+                    }
+                };
+            }
+        }
+        
+        empty_result
+    }
+    
     let mut client_status = use_signal(|| "Not initialized".to_string());
     let mut error_message = use_signal(|| None::<String>);
     let mut show_resources = use_signal(|| false);
@@ -1440,8 +1497,9 @@ fn McpDemo() -> Element {
                                                                                 p { class: "tool-description", "{tool.description}" }
                                                                                 div { class: "tool-schema",
                                                                                     h4 { class: "schema-title", "Parameters" }
-                                                                                    pre { class: "schema-content", 
-                                                                                        "{tool.input_schema}" 
+                                                                                    {
+                                                                                        let schema = &tool.input_schema;
+                                                                                        format_tool_parameters(schema)
                                                                                     }
                                                                                 }
                                                                                 
