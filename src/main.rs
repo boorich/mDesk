@@ -120,6 +120,9 @@ fn McpDemo() -> Element {
     let mut active_section = use_signal(|| "chat");
     let mut active_tool_modal = use_signal(|| None::<Tool>);
     
+    // Add sidebar collapsed state
+    let mut sidebar_collapsed = use_signal(|| false);
+    
     // Add credit balance signal
     let mut openrouter_credit = use_signal(|| None::<openrouter::CreditBalanceResponse>);
     let mut is_loading_credit = use_signal(|| false);
@@ -480,7 +483,13 @@ fn McpDemo() -> Element {
         }
     };
     rsx! {
-        div { class: "app-wrapper",
+        div { class: {
+                if *sidebar_collapsed.read() {
+                    "app-wrapper sidebar-collapsed"
+                } else {
+                    "app-wrapper"
+                }
+            },
             // Sidebar
             aside { class: "sidebar",
                 div { class: "sidebar-header",
@@ -500,6 +509,40 @@ fn McpDemo() -> Element {
                         }
                     }
                     div { class: "app-title", "mDesk" }
+                    
+                    // Add a toggle button for sidebar
+                    button {
+                        class: "sidebar-toggle",
+                        onclick: move |_| {
+                            let current_state = *sidebar_collapsed.read();
+                            sidebar_collapsed.set(!current_state);
+                        },
+                        // Use a code block to evaluate the icon
+                        {
+                            let is_collapsed = *sidebar_collapsed.read();
+                            rsx! {
+                                svg {
+                                    class: "toggle-icon",
+                                    xmlns: "http://www.w3.org/2000/svg",
+                                    width: "20",
+                                    height: "20",
+                                    view_box: "0 0 24 24",
+                                    fill: "none",
+                                    stroke: "currentColor",
+                                    stroke_width: "2",
+                                    stroke_linecap: "round",
+                                    stroke_linejoin: "round",
+                                    if is_collapsed {
+                                        // Right chevron when collapsed
+                                        polyline { points: "9 18 15 12 9 6" }
+                                    } else {
+                                        // Left chevron when expanded
+                                        polyline { points: "15 18 9 12 15 6" }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 div { class: "sidebar-section",
@@ -1130,7 +1173,7 @@ fn McpDemo() -> Element {
                 // Resources section
                 div { class: if *active_section.read() == "resources" { "content-section active" } else { "content-section" },
                     div { class: "section-header",
-                        h1 { class: "section-title", "MCP Resources" }
+                        h1 { class: "section-title", "Resources" }
                         p { class: "section-description", "Explore available resources in the MCP server" }
                     }
 
@@ -1233,7 +1276,7 @@ fn McpDemo() -> Element {
                 // Tools section
                 div { class: if *active_section.read() == "tools" { "content-section active" } else { "content-section" },
                     div { class: "section-header",
-                        h1 { class: "section-title", "MCP Tools" }
+                        h1 { class: "section-title", "Tools" }
                         p { class: "section-description", "Discover available tools across all running MCP servers" }
                     }
 
@@ -1475,7 +1518,7 @@ fn McpDemo() -> Element {
                 // Chat section
                 div { class: if *active_section.read() == "chat" { "content-section active" } else { "content-section" },
                     div { class: "section-header",
-                        h1 { class: "section-title", "MCP Chat" }
+                        h1 { class: "section-title", "Chat" }
                         p { class: "section-description", "Interact with AI models using MCP tools" }
                     }
                     
