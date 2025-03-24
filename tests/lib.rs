@@ -5,6 +5,7 @@ mod component_tests {
     // Include component test modules
     mod tool_suggestion_test;
     mod server_manager_test;
+    mod tool_selection_test;
 }
 
 #[cfg(test)]

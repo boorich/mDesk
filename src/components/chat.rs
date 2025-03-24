@@ -383,8 +383,11 @@ pub fn ChatTab(
                                     eprintln!("Adding message with tool suggestion for '{}'", tool_name);
                                     
                                     messages.write().push(
-                                        Message::new(MessageRole::Assistant, message_content)
-                                            .with_tool_interaction(suggestion)
+                                        Message::new(
+                                            MessageRole::Assistant,
+                                            message_content
+                                        )
+                                        .with_tool_interaction(suggestion)
                                     );
                                 } else {
                                     // Tool doesn't exist in MCP - add the message with an explanation
@@ -453,27 +456,20 @@ pub fn ChatTab(
         spawn({
             to_owned![messages, message_id, tool_name, arguments];
             async move {
-                // Execute the tool
-                match ToolManager::execute_tool(
-                    tool_name.clone(),
-                    arguments.clone(),
-                    &mcp_state_clone.read()
-                ).await {
+                // Execute the tool using the same method as the tools section
+                match ToolManager::execute_tool(tool_name.clone(), arguments.clone(), &mcp_state_clone.read()).await {
                     Ok(result) => {
                         // Format the result
                         let result_text = ToolManager::format_tool_result(&result);
                         
                         // Update the message with the result
                         if message_id < messages.read().len() {
-                            // Clone tool_name again as it was moved in the previous call
-                            let tool_name_for_message = tool_name.clone();
-                            
                             messages.write()[message_id] = Message::new(
                                 MessageRole::Tool,
-                                format!("Tool execution completed: {}", tool_name)
+                                format!("Tool execution completed: {}", tool_name.clone())
                             ).with_tool_interaction(
                                 ToolInteraction::Execution {
-                                    tool_name,
+                                    tool_name: tool_name.clone(),
                                     arguments,
                                     status: ToolExecutionStatus::Completed,
                                     result: Some(result_text.clone()),
@@ -485,7 +481,7 @@ pub fn ChatTab(
                             messages.write().push(
                                 Message::new(
                                     MessageRole::System,
-                                    format!("Tool '{}' returned result:\n\n{}", tool_name_for_message, result_text)
+                                    format!("Tool '{}' returned result:\n\n{}", tool_name, result_text)
                                 )
                             );
                         }

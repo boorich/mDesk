@@ -37,9 +37,38 @@ This document outlines the next steps for developing mDesk, a native desktop app
 ### 4. UI & UX Enhancements
 - [ ] Add animations for state transitions
 - [ ] Implement dark/light theme toggle
-- [ ] Create a collapsible sidebar
+- [x] Create a collapsible sidebar
 - [ ] Add tooltips for better user guidance
 - [ ] Implement keyboard shortcuts for common actions
+
+### 5. Tool Selection System Overhaul
+- [ ] Implement new LLM-based tool selection system
+  - [x] Create `RankedToolSelection` system
+    - [x] Design and implement core selection structures (`RankedToolSelection`, `ToolMatch`)
+    - [x] Implement confidence scoring and ranking logic
+    - [ ] Add parameter validation against tool schemas
+  - [x] Enhance LLM prompt engineering
+    - [x] Create structured prompts for tool ranking
+    - [x] Implement context-aware tool selection
+    - [x] Add reasoning capture for selection decisions
+    - [x] Add configurable model selection with cost considerations
+  - [ ] Build validation and processing pipeline
+    - [ ] Implement parameter validation system
+    - [ ] Create fallback strategies for low confidence matches
+    - [ ] Add logging and debugging capabilities
+  - [ ] Integration with chat system
+    - [ ] Update chat interface to show alternative tools
+    - [ ] Implement tool suggestion UI
+    - [ ] Add confidence threshold controls
+  - [ ] Prepare for agent mode
+    - [ ] Design tool chaining interface
+    - [ ] Implement decision tree logic for tool selection
+    - [ ] Add self-correction strategies
+  - [x] Testing and validation
+    - [x] Create comprehensive test suite for tool selection
+    - [x] Add model configuration options for test cost optimization
+    - [ ] Implement performance benchmarks
+    - [ ] Add monitoring for selection accuracy
 
 ## Medium Priority Tasks
 
