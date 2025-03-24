@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 use mcp_core::Tool;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 #[derive(PartialEq, Props, Clone)]
 pub struct ToolSuggestionProps {
@@ -14,7 +14,22 @@ pub struct ToolSuggestionProps {
 #[component]
 pub fn ToolSuggestion(props: ToolSuggestionProps) -> Element {
     let tool_name = props.tool.name.clone();
-    let args = props.suggested_args.clone();
+    let initial_args = serde_json::to_string_pretty(&props.suggested_args).unwrap_or_else(|_| "{}".to_string());
+    let mut args_text = use_signal(|| initial_args);
+    let mut parse_error = use_signal(|| None::<String>);
+    
+    let execute_with_args = move |_| {
+        // Try to parse the current args text as JSON
+        match serde_json::from_str::<Value>(&args_text.read()) {
+            Ok(parsed_args) => {
+                parse_error.set(None);
+                props.on_execute.call((tool_name.clone(), parsed_args));
+            },
+            Err(err) => {
+                parse_error.set(Some(format!("Invalid JSON: {}", err)));
+            }
+        }
+    };
     
     rsx! {
         div { class: "tool-suggestion",
@@ -40,8 +55,18 @@ pub fn ToolSuggestion(props: ToolSuggestionProps) -> Element {
             p { class: "tool-description", "{props.tool.description}" }
             
             div { class: "tool-args",
-                h4 { "Arguments:" }
-                pre { "{args}" }
+                h4 { "Arguments (editable):" }
+                textarea {
+                    class: "args-editor",
+                    value: "{args_text}",
+                    oninput: move |evt| args_text.set(evt.value().clone()),
+                    rows: "5",
+                    style: "width: 100%; font-family: monospace; font-size: 13px;"
+                }
+                
+                if let Some(error) = parse_error.read().as_ref() {
+                    div { class: "parse-error", "{error}" }
+                }
             }
             
             div { class: "tool-actions",
@@ -52,7 +77,7 @@ pub fn ToolSuggestion(props: ToolSuggestionProps) -> Element {
                 }
                 button {
                     class: "btn-execute",
-                    onclick: move |_| props.on_execute.call((tool_name.clone(), args.clone())),
+                    onclick: execute_with_args,
                     "Execute Tool"
                 }
             }

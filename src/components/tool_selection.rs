@@ -6,6 +6,7 @@ use anyhow::{Result, anyhow};
 use tracing::{debug, error, info, warn, instrument};
 use std::sync::Arc;
 use crate::components::tool_selection_cache::ToolSelectionCache;
+use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub enum ValidationStatus {
@@ -133,7 +134,7 @@ impl LLMToolSelector {
         Self {
             client: OpenRouterClient::new(api_key),
             model,
-            cache: Arc::new(ToolSelectionCache::new(300, 100)), // 5 minutes TTL, 100 max entries
+            cache: Arc::new(ToolSelectionCache::new(Duration::from_secs(300), 100)), // 5 minutes TTL, 100 max entries
             max_prompt_tools: 50, // Default limit to avoid huge prompts
         }
     }
@@ -317,11 +318,19 @@ impl LLMToolSelector {
     /// Selects appropriate tools based on user intent
     #[instrument(skip(self, available_tools), fields(num_tools = available_tools.len()))]
     pub async fn select_tools(&self, query: &str, available_tools: Vec<Tool>) -> Result<RankedToolSelection> {
-        // Check cache first if the query should be cached
-        if self.cache.should_cache(query) {
-            if let Some(cached) = self.cache.get(query, &available_tools) {
-                info!("Using cached tool selection for query: {}", query);
-                return Ok(cached);
+        // Check cache first
+        if let Some((tool_name, confidence, params)) = self.cache.get(query) {
+            info!("Using cached tool selection for query: {}", query);
+            // Find the tool in available tools
+            if let Some(tool) = available_tools.iter().find(|t| t.name == tool_name) {
+                let matches = vec![ToolMatch {
+                    tool: tool.clone(),
+                    confidence,
+                    suggested_parameters: Some(params),
+                    reasoning: "Retrieved from cache".to_string(),
+                    validation_status: ValidationStatus::Valid,
+                }];
+                return Ok(RankedToolSelection::new(matches));
             }
         }
         
@@ -420,8 +429,15 @@ impl LLMToolSelector {
             // If we have any valid matches, cache the result and return it
             if selection.matches.iter().any(|m| m.is_valid()) {
                 // Store in cache if appropriate
-                if self.cache.should_cache(query) {
-                    self.cache.store(query, &available_tools, selection.clone());
+                if let Some(best) = selection.best_match() {
+                    if best.is_valid() && best.confidence >= 0.7 && best.suggested_parameters.is_some() {
+                        self.cache.add(
+                            query, 
+                            &best.tool.name, 
+                            best.confidence, 
+                            best.suggested_parameters.as_ref().unwrap()
+                        );
+                    }
                 }
                 
                 return Ok(selection);
@@ -441,12 +457,12 @@ impl LLMToolSelector {
     /// Gets the current cache statistics
     pub fn cache_stats(&self) -> serde_json::Value {
         let stats = self.cache.stats();
-        serde_json::json!(stats)
+        serde_json::to_value(stats).unwrap_or_default()
     }
     
     /// Invalidates the tool selection cache
     pub fn invalidate_cache(&self) {
-        self.cache.invalidate_all();
+        self.cache.clear();
     }
     
     /// Process multiple tool selections in batch

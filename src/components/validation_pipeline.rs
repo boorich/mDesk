@@ -6,7 +6,7 @@ use mcp_core::Tool;
 use std::collections::HashMap;
 
 /// Represents the state of input validation
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ValidationState {
     /// Input is valid and ready for processing
     Valid(Value),
@@ -32,7 +32,7 @@ pub enum ValidationState {
 }
 
 /// Represents a recovery strategy applied to fix invalid input
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RecoveryStrategy {
     /// Used default values from schema
     DefaultValue { field: String, value: Value },
@@ -109,6 +109,7 @@ impl RecoveryStrategy {
 }
 
 /// Pipeline for validating and sanitizing tool inputs
+#[derive(Debug, Clone, PartialEq)]
 pub struct ValidationPipeline {
     /// Maximum depth for nested JSON structures
     max_depth: usize,
@@ -122,6 +123,8 @@ pub struct ValidationPipeline {
     suggest_alternatives: bool,
     /// Maximum number of alternative tools to suggest
     max_alternatives: usize,
+    /// Available tools for alternative suggestions
+    available_tools: Vec<Tool>,
 }
 
 impl Default for ValidationPipeline {
@@ -133,6 +136,7 @@ impl Default for ValidationPipeline {
             fallback_values: HashMap::new(),
             suggest_alternatives: true,
             max_alternatives: 3,
+            available_tools: Vec::new(),
         }
     }
 }
@@ -171,12 +175,61 @@ impl ValidationPipeline {
         self.max_alternatives = max;
         self
     }
+    
+    pub fn with_available_tools(mut self, tools: Vec<Tool>) -> Self {
+        self.available_tools = tools;
+        self
+    }
+    
+    /// Updates the list of available tools
+    pub fn update_available_tools(&mut self, tools: Vec<Tool>) {
+        self.available_tools = tools;
+    }
 
     /// Validates and sanitizes input for a specific tool
     #[instrument(skip(self, input), fields(tool_name = %tool.name))]
     pub fn validate_input(&self, tool: &Tool, input: Value) -> ValidationState {
         let mut changes = Vec::new();
         let mut errors = Vec::new();
+        
+        // Preprocessing for filesystem tools: ensure path parameters have values
+        let input = if input.is_object() && 
+                       (tool.name.contains("create_directory") || 
+                        tool.name.contains("list_directory") || 
+                        tool.name.contains("read_file") || 
+                        tool.name.contains("write_file") || 
+                        tool.name.contains("filesystem")) {
+            let mut modified_input = input.clone();
+            let obj = modified_input.as_object_mut().unwrap();
+            
+            // Check if the path parameter is missing or empty
+            let path_value = obj.get("path").map(|v| {
+                if let Some(path_str) = v.as_str() {
+                    path_str.trim().is_empty()
+                } else {
+                    true // Non-string values are considered empty
+                }
+            }).unwrap_or(true);
+            
+            // For filesystem tools, path is critically important
+            if path_value {
+                // Try to use a sensible default path
+                let default_path = match tool.name.as_str() {
+                    name if name.contains("create_directory") => Value::String("/Users/martinmaurer/Projects".to_string()),
+                    name if name.contains("list_directory") => Value::String("/Users/martinmaurer/Projects".to_string()),
+                    name if name.contains("read_file") => Value::String("/Users/martinmaurer/Projects/file.txt".to_string()),
+                    name if name.contains("write_file") => Value::String("/Users/martinmaurer/Projects/file.txt".to_string()),
+                    _ => Value::String("/Users/martinmaurer/Projects".to_string()),
+                };
+                
+                obj.insert("path".to_string(), default_path);
+                changes.push("Added default path parameter for filesystem operation".to_string());
+            }
+            
+            modified_input
+        } else {
+            input.clone()
+        };
 
         // First pass: Check basic structure and sanitize
         let sanitized = match self.sanitize_value(input.clone(), 0, &mut changes, &mut errors) {
@@ -300,6 +353,28 @@ impl ValidationPipeline {
         
         let mut recovered = input.clone();
         let obj = recovered.as_object_mut().unwrap();
+        
+        // Special handling for filesystem tools
+        let is_filesystem_tool = tool.name.contains("filesystem") || 
+                                 tool.name.contains("directory") || 
+                                 tool.name.contains("file");
+        
+        if is_filesystem_tool && !obj.contains_key("path") {
+            // Add path parameter for filesystem tools
+            let default_path = match tool.name.as_str() {
+                name if name.contains("create_directory") => Value::String("/Users/martinmaurer/Projects".to_string()),
+                name if name.contains("list_directory") => Value::String("/Users/martinmaurer/Projects".to_string()),
+                name if name.contains("read_file") => Value::String("/Users/martinmaurer/Projects/file.txt".to_string()),
+                name if name.contains("write_file") => Value::String("/Users/martinmaurer/Projects/file.txt".to_string()),
+                _ => Value::String("/Users/martinmaurer/Projects".to_string()),
+            };
+            
+            obj.insert("path".to_string(), default_path.clone());
+            strategies.push(RecoveryStrategy::DefaultValue { 
+                field: "path".to_string(), 
+                value: default_path 
+            });
+        }
         
         // Parse errors to identify problematic fields
         let mut field_errors = self.extract_field_errors(errors);
@@ -487,14 +562,95 @@ impl ValidationPipeline {
     
     /// Finds alternative tools that might be compatible with the input
     fn find_alternative_tools(&self, current_tool: &Tool, input: &Value) -> Vec<String> {
-        // This would typically involve comparing with other available tools
-        // For now, we'll just return a placeholder - this would be implemented
-        // with actual tool comparison logic in a real implementation
         debug!("Finding alternative tools for failed validation");
         
-        // In a real implementation, this would search through available tools
-        // and return names of tools with similar schemas that might accept this input
-        Vec::new()
+        let mut alternative_tools = Vec::new();
+        let mut tool_scores = Vec::new();
+        
+        // Extract field names from input - only work with objects
+        let input_fields = match input {
+            Value::Object(obj) => obj.keys().cloned().collect::<Vec<String>>(),
+            _ => return Vec::new(),
+        };
+        
+        // Only process if we have available tools to check
+        if self.available_tools.is_empty() {
+            return self.get_common_alternatives(&current_tool.name);
+        }
+        
+        for tool in &self.available_tools {
+            // Skip the current tool
+            if tool.name == current_tool.name {
+                continue;
+            }
+            
+            // Skip tools without a schema
+            let Some(props) = tool.input_schema.get("properties") else {
+                continue;
+            };
+            
+            let Some(props_obj) = props.as_object() else {
+                continue;
+            };
+            
+            // Calculate a compatibility score based on field overlap
+            let mut match_score = 0.0;
+            let tool_fields = props_obj.keys().cloned().collect::<Vec<String>>();
+            
+            // Boost score for each input field that's in the tool schema
+            for field in &input_fields {
+                if props_obj.contains_key(field) {
+                    match_score += 1.0;
+                }
+            }
+            
+            // Normalize score based on total number of fields
+            let total_fields = (input_fields.len() + tool_fields.len()) as f64;
+            if total_fields > 0.0 {
+                match_score = match_score / (total_fields / 2.0);
+            }
+            
+            // Only consider tools with some field overlap
+            if match_score > 0.0 {
+                tool_scores.push((tool.name.clone(), match_score));
+            }
+        }
+        
+        // Sort tools by match score (highest first)
+        tool_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        
+        // Take top N alternatives
+        for (tool_name, _score) in tool_scores.iter().take(self.max_alternatives) {
+            alternative_tools.push(tool_name.clone());
+        }
+        
+        // Check if we have any recommendations based on known common alternatives
+        let common_alternatives = self.get_common_alternatives(&current_tool.name);
+        
+        // Add any common alternatives not already included
+        for alt in common_alternatives {
+            if !alternative_tools.contains(&alt) && alternative_tools.len() < self.max_alternatives {
+                alternative_tools.push(alt);
+            }
+        }
+        
+        alternative_tools
+    }
+    
+    /// Returns common alternative tools for a given tool based on known patterns
+    fn get_common_alternatives(&self, tool_name: &str) -> Vec<String> {
+        match tool_name {
+            "web_search" => vec!["mcp_github_search_repositories".to_string(), "mcp_github_search_code".to_string()],
+            "read_file" => vec!["mcp_filesystem_read_file".to_string()],
+            "write_file" => vec!["mcp_filesystem_write_file".to_string(), "mcp_filesystem_edit_file".to_string()],
+            "edit_file" => vec!["mcp_filesystem_edit_file".to_string(), "mcp_filesystem_write_file".to_string()],
+            "list_dir" => vec!["mcp_filesystem_list_directory".to_string()],
+            "run_terminal_cmd" => vec!["mcp_filesystem_read_file".to_string(), "mcp_filesystem_write_file".to_string()],
+            "grep_search" => vec!["codebase_search".to_string(), "file_search".to_string()],
+            "file_search" => vec!["grep_search".to_string(), "codebase_search".to_string()],
+            "codebase_search" => vec!["grep_search".to_string(), "file_search".to_string()],
+            _ => Vec::new(),
+        }
     }
 
     /// Sanitizes a JSON value, checking for security issues and malformed data

@@ -1,219 +1,161 @@
-use mcp_core::Tool;
-use crate::components::tool_selection::RankedToolSelection;
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use serde_json::Value;
+use chrono::{DateTime, Utc};
 use tracing::{debug, info, warn, instrument};
 
-/// A key for the cache consisting of the query and a hash of available tools
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct CacheKey {
-    query: String,
-    tools_hash: u64,
-}
-
-/// Cached selection results with expiration
+/// Cache for tool selection results to avoid redundant LLM calls
 #[derive(Debug, Clone)]
-struct CacheEntry {
-    selection: RankedToolSelection,
-    expires_at: Instant,
-}
-
-/// Cache for tool selection results to avoid repeated LLM calls
 pub struct ToolSelectionCache {
-    entries: Arc<Mutex<HashMap<CacheKey, CacheEntry>>>,
-    default_ttl: Duration,
+    cache: Arc<Mutex<HashMap<String, CacheEntry>>>,
+    ttl: Duration,
     max_entries: usize,
 }
 
+/// Cache entry for a specific query
+#[derive(Debug, Clone, PartialEq)]
+struct CacheEntry {
+    tool_name: String,
+    confidence: f64,
+    arguments: Value,
+    created_at: DateTime<Utc>,
+    last_used: Instant,
+    use_count: usize,
+}
+
 impl ToolSelectionCache {
-    /// Create a new cache with the specified TTL and maximum size
-    pub fn new(ttl_seconds: u64, max_entries: usize) -> Self {
+    /// Create a new cache with specified TTL and maximum entries
+    pub fn new(ttl: Duration, max_entries: usize) -> Self {
         Self {
-            entries: Arc::new(Mutex::new(HashMap::new())),
-            default_ttl: Duration::from_secs(ttl_seconds),
+            cache: Arc::new(Mutex::new(HashMap::new())),
+            ttl,
             max_entries,
         }
     }
     
-    /// Get a cached selection if available and not expired
-    #[instrument(skip(self, tools))]
-    pub fn get(&self, query: &str, tools: &[Tool]) -> Option<RankedToolSelection> {
-        let key = self.create_key(query, tools);
+    /// Get a cached tool suggestion for a query if it exists
+    #[instrument(skip(self))]
+    pub fn get(&self, query: &str) -> Option<(String, f64, Value)> {
+        let now = Instant::now();
+        let query_key = self.normalize_query(query);
         
-        let mut entries = self.entries.lock().unwrap();
+        let mut cache = self.cache.lock().unwrap();
         
-        // Remove expired entries
-        self.cleanup_expired(&mut entries);
-        
-        if let Some(entry) = entries.get(&key) {
-            if entry.expires_at > Instant::now() {
-                debug!("Cache hit for query: {}", query);
-                return Some(entry.selection.clone());
-            } else {
-                // This should not happen due to cleanup_expired, but just in case
-                debug!("Expired entry found for query: {}", query);
-                entries.remove(&key);
+        if let Some(entry) = cache.get_mut(&query_key) {
+            // Check if expired
+            if now.duration_since(entry.last_used) > self.ttl {
+                // Entry expired, remove it
+                cache.remove(&query_key);
+                debug!("Cache miss - expired entry removed for query: {}", query);
+                return None;
             }
+            
+            // Update last used time
+            entry.last_used = now;
+            entry.use_count += 1;
+            
+            debug!("Cache hit for query: {}", query);
+            return Some((
+                entry.tool_name.clone(),
+                entry.confidence,
+                entry.arguments.clone()
+            ));
         }
         
         debug!("Cache miss for query: {}", query);
         None
     }
     
-    /// Store a selection in the cache
-    #[instrument(skip(self, tools, selection))]
-    pub fn store(&self, query: &str, tools: &[Tool], selection: RankedToolSelection) {
-        let key = self.create_key(query, tools);
+    /// Add a tool suggestion to the cache
+    #[instrument(skip(self, arguments))]
+    pub fn add(&self, query: &str, tool_name: &str, confidence: f64, arguments: &Value) {
+        let query_key = self.normalize_query(query);
+        
+        let mut cache = self.cache.lock().unwrap();
+        
+        // Enforce maximum size
+        if cache.len() >= self.max_entries && !cache.contains_key(&query_key) {
+            self.remove_oldest(&mut cache);
+        }
+        
+        // Add or update entry
         let entry = CacheEntry {
-            selection,
-            expires_at: Instant::now() + self.default_ttl,
+            tool_name: tool_name.to_string(),
+            confidence,
+            arguments: arguments.clone(),
+            created_at: Utc::now(),
+            last_used: Instant::now(),
+            use_count: 1,
         };
         
-        let mut entries = self.entries.lock().unwrap();
-        
-        // If we're at capacity, remove the oldest entry
-        if entries.len() >= self.max_entries {
-            self.remove_oldest(&mut entries);
-        }
-        
-        entries.insert(key, entry);
-        debug!("Stored selection in cache for query: {}", query);
+        cache.insert(query_key, entry);
+        debug!("Added cache entry for tool: {}", tool_name);
     }
     
-    /// Check if a query has parameters that would affect caching
+    /// Clear all entries in the cache
     #[instrument(skip(self))]
-    pub fn should_cache(&self, query: &str) -> bool {
-        // Don't cache queries that are likely to be unique or context-dependent
-        let query_lower = query.to_lowercase();
-        
-        // Don't cache queries with specific dates, times, usernames, or dynamic elements
-        if query_lower.contains("today") || 
-           query_lower.contains("yesterday") ||
-           query_lower.contains("tomorrow") ||
-           query_lower.contains("now") ||
-           query_lower.contains("current") ||
-           query_lower.contains("latest") ||
-           query_lower.contains("@") ||
-           query_lower.contains("me") ||
-           query_lower.contains("my") ||
-           query_lower.contains("random") {
-            debug!("Query contains context-dependent terms, skipping cache: {}", query);
-            return false;
-        }
-        
-        true
+    pub fn clear(&self) {
+        let mut cache = self.cache.lock().unwrap();
+        cache.clear();
+        info!("Cache cleared");
     }
     
-    /// Invalidate the entire cache
+    /// Remove all entries related to a specific tool
     #[instrument(skip(self))]
-    pub fn invalidate_all(&self) {
-        let mut entries = self.entries.lock().unwrap();
-        entries.clear();
-        info!("Cache invalidated completely");
-    }
-    
-    /// Invalidate cache entries that match a specific tool
-    #[instrument(skip(self))]
-    pub fn invalidate_for_tool(&self, tool_name: &str) {
-        let mut entries = self.entries.lock().unwrap();
+    pub fn remove_tool_entries(&self, tool_name: &str) {
+        let mut cache = self.cache.lock().unwrap();
         
-        // Create a list of keys to remove
-        let keys_to_remove: Vec<CacheKey> = entries
+        let keys_to_remove: Vec<String> = cache
             .iter()
-            .filter(|(_, entry)| {
-                entry.selection.matches().iter()
-                    .any(|m| m.tool.name == tool_name)
-            })
+            .filter(|(_, entry)| entry.tool_name == tool_name)
             .map(|(k, _)| k.clone())
             .collect();
         
-        // Remove the entries
-        for key in keys_to_remove {
-            entries.remove(&key);
+        let removed_count = keys_to_remove.len();
+        
+        for key in &keys_to_remove {
+            cache.remove(key);
         }
         
-        debug!("Invalidated cache entries for tool: {}", tool_name);
+        info!("Removed {} entries for tool: {}", removed_count, tool_name);
     }
     
-    /// Get statistics about the cache
+    /// Get cache statistics
     #[instrument(skip(self))]
     pub fn stats(&self) -> HashMap<String, Value> {
-        let entries = self.entries.lock().unwrap();
+        let cache = self.cache.lock().unwrap();
         
         let mut stats = HashMap::new();
-        stats.insert("total_entries".to_string(), Value::from(entries.len()));
+        stats.insert("total_entries".to_string(), Value::from(cache.len()));
         stats.insert("max_entries".to_string(), Value::from(self.max_entries));
-        stats.insert("ttl_seconds".to_string(), Value::from(self.default_ttl.as_secs()));
+        stats.insert("ttl_seconds".to_string(), Value::from(self.ttl.as_secs()));
         
-        // Count expired entries
-        let now = Instant::now();
-        let expired_count = entries.values().filter(|e| e.expires_at <= now).count();
-        stats.insert("expired_entries".to_string(), Value::from(expired_count));
+        // Calculate total usage count
+        let total_usage: usize = cache.values().map(|entry| entry.use_count).sum();
+        stats.insert("total_usage".to_string(), Value::from(total_usage));
         
         stats
     }
     
     // Private helper methods
     
-    fn create_key(&self, query: &str, tools: &[Tool]) -> CacheKey {
-        // Create a normalized query for better cache hits
-        let normalized_query = self.normalize_query(query);
-        
-        // Create a hash of tool names - if tools change, cache is invalidated
-        let mut tools_hash = std::collections::hash_map::DefaultHasher::new();
-        use std::hash::{Hash, Hasher};
-        
-        let mut tool_names: Vec<&str> = tools.iter()
-            .map(|t| t.name.as_str())
-            .collect();
-        
-        // Sort to ensure consistent hash regardless of order
-        tool_names.sort();
-        
-        for name in tool_names {
-            name.hash(&mut tools_hash);
-        }
-        
-        CacheKey {
-            query: normalized_query,
-            tools_hash: tools_hash.finish(),
-        }
-    }
-    
     fn normalize_query(&self, query: &str) -> String {
-        // Basic normalization to improve cache hits
-        let mut normalized = query.to_lowercase();
-        normalized = normalized.trim().to_string();
-        
-        // Remove extra whitespace
-        let whitespace_regex = regex::Regex::new(r"\s+").unwrap();
-        normalized = whitespace_regex.replace_all(&normalized, " ").to_string();
-        
+        // Simple normalization: lowercase and remove extra whitespace
+        let normalized = query.to_lowercase();
         normalized
+            .split_whitespace()
+            .collect::<Vec<&str>>()
+            .join(" ")
     }
     
-    fn cleanup_expired(&self, entries: &mut HashMap<CacheKey, CacheEntry>) {
-        let now = Instant::now();
-        let expired_keys: Vec<CacheKey> = entries
+    fn remove_oldest(&self, cache: &mut HashMap<String, CacheEntry>) {
+        if let Some((key_to_remove, _)) = cache
             .iter()
-            .filter(|(_, entry)| entry.expires_at <= now)
-            .map(|(k, _)| k.clone())
-            .collect();
-        
-        for key in expired_keys {
-            entries.remove(&key);
-        }
-    }
-    
-    fn remove_oldest(&self, entries: &mut HashMap<CacheKey, CacheEntry>) {
-        if let Some(oldest_key) = entries
-            .iter()
-            .min_by_key(|(_, entry)| entry.expires_at)
-            .map(|(k, _)| k.clone())
+            .min_by_key(|(_, entry)| entry.last_used)
         {
-            entries.remove(&oldest_key);
+            let key_to_remove = key_to_remove.clone();
+            cache.remove(&key_to_remove);
             debug!("Removed oldest cache entry to make room");
         }
     }

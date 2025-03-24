@@ -1574,16 +1574,52 @@ fn McpDemo() -> Element {
                     // Load tools if needed and show chat component
                     {
                         // Ensure we fetch tools before rendering the chat tab if needed
-                        if tools.read().is_empty() && mcp_state.read().client.is_some() {
+                        if tools.read().is_empty() && !mcp_state.read().active_clients.is_empty() {
                             eprintln!("Tools not loaded yet, fetching them for chat");
                             
-                            // Clone and call fetch_tools
-                            let mut fetch_tools_clone = fetch_tools.clone();
-                            fetch_tools_clone();
+                            // Create a function to fetch tools from all servers
+                            let mut fetch_all_servers_tools = || {
+                                let mut all_tools = Vec::new();
+                                let active_clients = mcp_state.read().active_clients.clone();
+                                
+                                // Create a oneshot channel to get the result back
+                                let (tx, mut rx) = tokio::sync::oneshot::channel();
+                                
+                                // Spawn a task to fetch all tools
+                                spawn({
+                                    to_owned![active_clients];
+                                    async move {
+                                        for (_server_id, client_arc) in active_clients {
+                                            let client = client_arc.lock().await;
+                                            match client.list_tools(None).await {
+                                                Ok(result) => {
+                                                    all_tools.extend(result.tools);
+                                                },
+                                                Err(e) => {
+                                                    eprintln!("Error fetching tools: {}", e);
+                                                }
+                                            }
+                                        }
+                                        let _ = tx.send(all_tools);
+                                    }
+                                });
+                                
+                                // Wait a short time for tools to load
+                                std::thread::sleep(std::time::Duration::from_millis(100));
+                                
+                                // Try to receive the tools
+                                match rx.try_recv() {
+                                    Ok(received_tools) => {
+                                        tools.set(received_tools);
+                                    },
+                                    Err(_) => {
+                                        eprintln!("Failed to receive tools in time");
+                                    }
+                                }
+                            };
                             
-                            // Give a short wait for tools to update
-                            eprintln!("Waiting for tools to load...");
-                            std::thread::sleep(std::time::Duration::from_millis(100));
+                            // Call the function
+                            fetch_all_servers_tools();
                         }
                         
                         // Debug logs

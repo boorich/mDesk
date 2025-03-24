@@ -41,83 +41,63 @@ fn create_test_selection() -> RankedToolSelection {
 
 #[test]
 fn test_cache_hit_miss() {
-    let cache = ToolSelectionCache::new(5, 10); // 5-second TTL, 10 max entries
-    let tools = create_test_tools();
+    let cache = ToolSelectionCache::new(Duration::from_secs(5), 10); // 5-second TTL, 10 max entries
     let query = "Test query";
-    let selection = create_test_selection();
     
     // Initial request should be a miss
-    assert!(cache.get(query, &tools).is_none());
+    assert!(cache.get(query).is_none());
     
     // Store the selection
-    cache.store(query, &tools, selection.clone());
+    cache.add(query, "test_tool_1", 0.8, &json!({}));
     
     // Next request should be a hit
-    let cached = cache.get(query, &tools);
+    let cached = cache.get(query);
     assert!(cached.is_some());
-    assert_eq!(cached.unwrap().len(), 1);
+    let (tool_name, confidence, _) = cached.unwrap();
+    assert_eq!(tool_name, "test_tool_1");
+    assert_eq!(confidence, 0.8);
 }
 
 #[test]
 fn test_cache_expiration() {
-    let cache = ToolSelectionCache::new(1, 10); // 1-second TTL
-    let tools = create_test_tools();
+    let cache = ToolSelectionCache::new(Duration::from_secs(1), 10); // 1-second TTL
     let query = "Test query";
-    let selection = create_test_selection();
     
-    cache.store(query, &tools, selection);
+    cache.add(query, "test_tool_1", 0.8, &json!({}));
     
     // Immediately should be a hit
-    assert!(cache.get(query, &tools).is_some());
+    assert!(cache.get(query).is_some());
     
     // Sleep past the TTL
     sleep(Duration::from_secs(2));
     
     // Should be a miss now
-    assert!(cache.get(query, &tools).is_none());
-}
-
-#[test]
-fn test_should_cache() {
-    let cache = ToolSelectionCache::new(60, 10);
-    
-    // These queries should be cacheable
-    assert!(cache.should_cache("Find repositories about Rust"));
-    assert!(cache.should_cache("How do I search for files"));
-    
-    // These queries should not be cacheable
-    assert!(!cache.should_cache("What is the weather today"));
-    assert!(!cache.should_cache("Show me my latest commits"));
-    assert!(!cache.should_cache("What time is it now"));
+    assert!(cache.get(query).is_none());
 }
 
 #[test]
 fn test_cache_invalidation() {
-    let cache = ToolSelectionCache::new(60, 10);
-    let tools = create_test_tools();
-    let selection = create_test_selection();
+    let cache = ToolSelectionCache::new(Duration::from_secs(60), 10);
     
     // Store a few entries
-    cache.store("query1", &tools, selection.clone());
-    cache.store("query2", &tools, selection.clone());
+    cache.add("query1", "test_tool_1", 0.8, &json!({}));
+    cache.add("query2", "test_tool_1", 0.8, &json!({}));
     
     // Verify they're cached
-    assert!(cache.get("query1", &tools).is_some());
-    assert!(cache.get("query2", &tools).is_some());
+    assert!(cache.get("query1").is_some());
+    assert!(cache.get("query2").is_some());
     
     // Invalidate all
-    cache.invalidate_all();
+    cache.clear();
     
     // Both should be misses now
-    assert!(cache.get("query1", &tools).is_none());
-    assert!(cache.get("query2", &tools).is_none());
+    assert!(cache.get("query1").is_none());
+    assert!(cache.get("query2").is_none());
 }
 
 #[test]
 fn test_cache_stats() {
-    let cache = ToolSelectionCache::new(60, 10);
-    let tools = create_test_tools();
-    let selection = create_test_selection();
+    let cache = ToolSelectionCache::new(Duration::from_secs(60), 10);
     
     // Empty cache stats
     let stats = cache.stats();
@@ -126,8 +106,8 @@ fn test_cache_stats() {
     assert_eq!(stats["ttl_seconds"], json!(60));
     
     // Add some entries
-    cache.store("query1", &tools, selection.clone());
-    cache.store("query2", &tools, selection.clone());
+    cache.add("query1", "test_tool_1", 0.8, &json!({}));
+    cache.add("query2", "test_tool_1", 0.8, &json!({}));
     
     // Check stats again
     let stats = cache.stats();
@@ -135,30 +115,42 @@ fn test_cache_stats() {
 }
 
 #[test]
-fn test_tool_hashing() {
-    let cache = ToolSelectionCache::new(60, 10);
-    let tools1 = create_test_tools();
-    let tools2 = vec![
-        Tool {
-            name: "test_tool_1".to_string(),
-            description: "A test tool one".to_string(),
-            input_schema: json!({"type": "object"}),
-        },
-        Tool {
-            name: "test_tool_3".to_string(), // Different tool
-            description: "A test tool three".to_string(),
-            input_schema: json!({"type": "object"}),
-        },
-    ];
+fn test_tool_removal() {
+    let cache = ToolSelectionCache::new(Duration::from_secs(60), 10);
     
-    let selection = create_test_selection();
+    // Store entries for different tools
+    cache.add("query1", "test_tool_1", 0.8, &json!({}));
+    cache.add("query2", "test_tool_2", 0.8, &json!({}));
     
-    // Store with tools1
-    cache.store("query", &tools1, selection.clone());
+    // Verify they're cached
+    assert!(cache.get("query1").is_some());
+    assert!(cache.get("query2").is_some());
     
-    // Verify hit with tools1
-    assert!(cache.get("query", &tools1).is_some());
+    // Remove entries for test_tool_1
+    cache.remove_tool_entries("test_tool_1");
     
-    // Should be a miss with tools2 since tool set changed
-    assert!(cache.get("query", &tools2).is_none());
+    // query1 should be a miss now
+    assert!(cache.get("query1").is_none());
+    // but query2 should still be a hit
+    assert!(cache.get("query2").is_some());
+}
+
+#[test]
+fn test_max_entries() {
+    let cache = ToolSelectionCache::new(Duration::from_secs(60), 2);  // Only 2 max entries
+    
+    // Add more than max entries
+    cache.add("query1", "test_tool_1", 0.8, &json!({}));
+    // Access query1 to make it more recently used
+    cache.get("query1");
+    
+    cache.add("query2", "test_tool_2", 0.8, &json!({}));
+    // Adding a third entry should evict the oldest one, which is still query1
+    cache.add("query3", "test_tool_3", 0.8, &json!({}));
+    
+    // Verify the oldest entry was removed
+    assert!(cache.get("query2").is_some());
+    assert!(cache.get("query3").is_some());
+    // query1 should have been removed as the oldest
+    assert!(cache.get("query1").is_none());
 } 

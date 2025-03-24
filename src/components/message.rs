@@ -209,7 +209,72 @@ pub fn MessageView(props: MessageViewProps) -> Element {
     
     rsx! {
         div {
-            class: format!("message {}", role_class),
+            id: "MessageView",
+            class: match message.role {
+                MessageRole::User => "message user-message",
+                MessageRole::Assistant => "message assistant-message",
+                MessageRole::System => "message system-message",
+                MessageRole::Thinking => "message thinking-message",
+                MessageRole::Tool => "message tool-message",
+            },
+            
+            style {
+                ".message-text {{
+                    flex: 1;
+                    word-break: break-word;
+                    overflow-wrap: break-word;
+                }}
+                
+                .system-message-content {{
+                    padding: 8px 12px;
+                    border-radius: 8px;
+                    margin-bottom: 8px;
+                }}
+                
+                .system-message-content.alternatives-message {{
+                    background-color: rgba(255, 165, 0, 0.1);
+                    border-left: 4px solid orange;
+                }}
+                
+                .system-message-content.recovery-message {{
+                    background-color: rgba(0, 128, 0, 0.1);
+                    border-left: 4px solid green;
+                }}
+                
+                .warning-container, .recovery-container {{
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    font-weight: 600;
+                    margin-bottom: 8px;
+                }}
+                
+                .warning-icon {{
+                    color: orange;
+                }}
+                
+                .recovery-icon {{
+                    color: green;
+                }}
+                
+                .error-details {{
+                    margin-bottom: 12px;
+                }}
+                
+                .alternative-tools-section h4 {{
+                    font-size: 14px;
+                    margin: 8px 0;
+                }}
+                
+                .alternative-tool-item {{
+                    padding: 4px 0;
+                    font-family: monospace;
+                }}
+                
+                .recovery-paragraph {{
+                    margin: 4px 0;
+                }}"
+            },
             div {
                 class: "message-avatar",
                 div {
@@ -239,7 +304,90 @@ pub fn MessageView(props: MessageViewProps) -> Element {
                             div { class: "dot" }
                             div { class: "dot" }
                         }
+                    } else if message.role == MessageRole::System && message.content.contains("Alternative tools") {
+                        // Special handling for system messages with alternative tools
+                        div { 
+                            class: "system-message-content alternatives-message",
+                            div {
+                                class: "warning-container",
+                                svg {
+                                    class: "warning-icon",
+                                    xmlns: "http://www.w3.org/2000/svg",
+                                    width: "20",
+                                    height: "20",
+                                    view_box: "0 0 24 24",
+                                    fill: "none",
+                                    stroke: "currentColor",
+                                    stroke_width: "2",
+                                    stroke_linecap: "round",
+                                    stroke_linejoin: "round",
+                                    path { d: "M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" },
+                                    line { x1: "12", y1: "9", x2: "12", y2: "13" },
+                                    line { x1: "12", y1: "17", x2: "12.01", y2: "17" }
+                                }
+                                "Tool Validation Failed"
+                            }
+                            // Split the message to show error details and alternatives separately
+                            {message.content.split("Alternative tools").enumerate().map(|(idx, part)| {
+                                if idx == 0 {
+                                    // First part is the error details
+                                    rsx! {
+                                        div { class: "error-details", {part} }
+                                    }
+                                } else {
+                                    // Second part is the alternatives
+                                    rsx! {
+                                        div { 
+                                            class: "alternative-tools-section",
+                                            h4 { "Alternative tools you might want to use instead:" }
+                                            {part.split("\n- ").skip(1).map(|tool_line| {
+                                                rsx! {
+                                                    div { class: "alternative-tool-item", "- {tool_line}" }
+                                                }
+                                            })}
+                                        }
+                                    }
+                                }
+                            })}
+                        }
+                    } else if message.role == MessageRole::System && message.content.contains("recovered") {
+                        // Special handling for recovery messages
+                        div {
+                            class: "system-message-content recovery-message",
+                            div {
+                                class: "recovery-container",
+                                svg {
+                                    class: "recovery-icon",
+                                    xmlns: "http://www.w3.org/2000/svg",
+                                    width: "20",
+                                    height: "20",
+                                    view_box: "0 0 24 24",
+                                    fill: "none",
+                                    stroke: "currentColor",
+                                    stroke_width: "2",
+                                    stroke_linecap: "round",
+                                    stroke_linejoin: "round",
+                                    path { d: "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" },
+                                    path { d: "m9 12 2 2 4-4" }
+                                }
+                                "Input Recovery Applied"
+                            }
+                            // Split message to show what was recovered
+                            {message.content.split("\n\n").map(|paragraph| {
+                                if !paragraph.trim().is_empty() {
+                                    rsx! {
+                                        p { 
+                                            class: "recovery-paragraph",
+                                            {paragraph}
+                                        }
+                                    }
+                                } else {
+                                    rsx! {}
+                                }
+                            })}
+                        }
                     } else {
+                        // Default message rendering for other messages
                         // Split by newlines and render paragraphs
                         {message.content.split("\n\n").map(|paragraph| {
                             if !paragraph.trim().is_empty() {

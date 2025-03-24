@@ -7,7 +7,10 @@ use mcp_client::McpClientTrait;
 use crate::components::tool_manager::{ToolManager, ToolInteraction};
 use crate::components::tool_suggestion::ToolExecutionStatus;
 use crate::McpState;
-use serde_json::Value;
+use serde_json::{Value, json};
+use crate::components::validation_pipeline::{ValidationPipeline, ValidationState, RecoveryStrategy};
+use crate::components::tool_selection_cache::ToolSelectionCache;
+use std::sync::Arc;
 
 // Define a struct to hold OpenRouter models for the dropdown
 #[derive(Debug, Clone, PartialEq)]
@@ -40,16 +43,101 @@ pub fn ChatTab(
     let mut input = use_signal(String::new);
     let mut is_sending = use_signal(|| false);
     let mut model_selection = use_signal(ModelSelection::new);
+    let mut confidence_threshold = use_signal(|| 0.7); // New signal for confidence threshold
     
     // Store mcp_tools in a signal so it can be accessed from multiple closures
     let tools = use_signal(|| {
+        // Fetch initial tools from props
+        let mut all_tools = mcp_tools.clone();
+        
         // Log the available tools for debugging
-        eprintln!("Available tools for ChatTab component: {}", mcp_tools.len());
-        for tool in &mcp_tools {
+        eprintln!("Available tools for ChatTab component: {}", all_tools.len());
+        for tool in &all_tools {
             eprintln!("  - Tool: {} ({})", tool.name, tool.description);
         }
-        mcp_tools
+        
+        all_tools
     });
+    
+    // Function to fetch tools from all connected servers
+    let mut fetch_all_servers_tools = {
+        to_owned![tools, mcp_state];
+        move || {
+            spawn({
+                to_owned![tools, mcp_state];
+                async move {
+                    // Get all active clients
+                    let active_clients = mcp_state.read().active_clients.clone();
+                    
+                    // Skip if no clients
+                    if active_clients.is_empty() {
+                        return;
+                    }
+                    
+                    // Collect tools from all clients
+                    let mut all_tools = Vec::new();
+                    
+                    for (server_id, client_arc) in active_clients {
+                        // Get a lock on the client
+                        let client = client_arc.lock().await;
+                        
+                        // Try to fetch tools
+                        match client.list_tools(None).await {
+                            Ok(result) => {
+                                eprintln!("Fetched {} tools from server {}", result.tools.len(), server_id);
+                                
+                                // Add these tools to our collection
+                                all_tools.extend(result.tools);
+                            }
+                            Err(e) => {
+                                eprintln!("Error fetching tools from server {}: {}", server_id, e);
+                            }
+                        }
+                    }
+                    
+                    // Now update the tools signal with all tools from all servers
+                    if !all_tools.is_empty() {
+                        eprintln!("Updating tools with {} total tools from all servers", all_tools.len());
+                        tools.set(all_tools);
+                    }
+                }
+            });
+        }
+    };
+    
+    // Call the function to fetch tools during initialization
+    fetch_all_servers_tools();
+    
+    // Periodically refresh tools (every 30 seconds)
+    use_coroutine(move |_rx: dioxus::prelude::UnboundedReceiver<()>| {
+        to_owned![fetch_all_servers_tools];
+        async move {
+            loop {
+                // Wait 30 seconds
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                
+                // Fetch tools
+                fetch_all_servers_tools();
+            }
+        }
+    });
+    
+    // Tool validation pipeline - We don't use use_memo since we need to get the read value each time
+    let validation_pipeline = ValidationPipeline::new()
+        .with_max_depth(10)
+        .with_max_string_length(1000)
+        .with_auto_fix(true)
+        .with_suggest_alternatives(true)
+        .with_max_alternatives(3)
+        .with_fallback("count", json!(5))
+        .with_fallback("limit", json!(100))
+        .with_available_tools(tools.read().clone());
+    
+    // Tool selection cache
+    let cache = Arc::new(ToolSelectionCache::new(
+        std::time::Duration::from_secs(300), // 5 minute cache expiration
+        100 // Max 100 entries
+    ));
     
     // Debug MCP state and try to preload tools immediately if possible
     eprintln!("ChatTab received MCP client state: {}", if mcp_state.read().client.is_some() { "Client available" } else { "No client available" });
@@ -299,9 +387,176 @@ pub fn ChatTab(
         // Log the tools we have
         eprintln!("Processing message with {} tools available", tools_clone.len());
         
+        // Get the current confidence threshold
+        let conf_threshold = *confidence_threshold.read();
+        
+        // Get a reference to the tool selection cache
+        let cache = cache.clone();
+        
         spawn({
             to_owned![messages, is_sending, user_input, mcp_state];
             async move {
+                // First, check the tool selection cache
+                let cached_tool_suggestion = cache.get(&user_input);
+                
+                if let Some((cached_tool_name, cached_confidence, cached_args)) = cached_tool_suggestion {
+                    // Only use cached suggestion if confidence meets threshold
+                    if cached_confidence >= conf_threshold {
+                        eprintln!("Using cached tool suggestion: {} with confidence {}", cached_tool_name, cached_confidence);
+                        
+                        // Check if this tool exists
+                        if let Some(tool) = tools_clone.iter().find(|t| t.name == cached_tool_name) {
+                            // Validate the cached arguments against the tool schema
+                            let pipeline = ValidationPipeline::new()
+                                .with_max_depth(10)
+                                .with_max_string_length(1000)
+                                .with_auto_fix(true)
+                                .with_suggest_alternatives(true)
+                                .with_max_alternatives(3)
+                                .with_fallback("count", json!(5))
+                                .with_fallback("limit", json!(100))
+                                .with_available_tools(tools_clone.clone());
+                                
+                            let validation_result = pipeline.validate_input(tool, cached_args.clone());
+                            
+                            match validation_result {
+                                ValidationState::Valid(validated_args) => {
+                                    // Cached arguments are valid, proceed with suggestion
+                                    // Remove thinking message
+                                    if thinking_id < messages.read().len() {
+                                        messages.write().remove(thinking_id);
+                                    }
+                                    
+                                    // Create a message that suggests using the cached tool
+                                    let suggestion_message = format!(
+                                        "I'll help you with that. Based on your request, I can use the `{}` tool.\n\nWould you like me to proceed?", 
+                                        cached_tool_name
+                                    );
+                                    
+                                    let message_id = messages.write().len();
+                                    messages.write().push(
+                                        Message::new(
+                                            MessageRole::Assistant,
+                                            suggestion_message
+                                        ).with_tool_interaction(
+                                            ToolInteraction::Suggestion {
+                                                tool_name: cached_tool_name.clone(),
+                                                suggested_args: validated_args.clone(),
+                                                message_idx: message_id,
+                                            }
+                                        )
+                                    );
+                                    
+                                    is_sending.set(false);
+                                    return;
+                                },
+                                ValidationState::Sanitized { sanitized, changes, .. } => {
+                                    // Cached arguments needed sanitization
+                                    // Remove thinking message
+                                    if thinking_id < messages.read().len() {
+                                        messages.write().remove(thinking_id);
+                                    }
+                                    
+                                    // Create a message that suggests using the cached tool with sanitized args
+                                    let change_desc = if !changes.is_empty() {
+                                        format!("\n\nNote: I've made minor adjustments to the parameters: {}", 
+                                            changes.join(", "))
+                                    } else {
+                                        "".to_string()
+                                    };
+                                    
+                                    let suggestion_message = format!(
+                                        "I'll help you with that. Based on your request, I can use the `{}` tool.{}\n\nWould you like me to proceed?", 
+                                        cached_tool_name,
+                                        change_desc
+                                    );
+                                    
+                                    let message_id = messages.write().len();
+                                    messages.write().push(
+                                        Message::new(
+                                            MessageRole::Assistant,
+                                            suggestion_message
+                                        ).with_tool_interaction(
+                                            ToolInteraction::Suggestion {
+                                                tool_name: cached_tool_name.clone(),
+                                                suggested_args: sanitized.clone(),
+                                                message_idx: message_id,
+                                            }
+                                        )
+                                    );
+                                    
+                                    is_sending.set(false);
+                                    return;
+                                },
+                                ValidationState::Recovered { recovered, strategies, .. } => {
+                                    // Cached arguments needed recovery
+                                    // Remove thinking message
+                                    if thinking_id < messages.read().len() {
+                                        messages.write().remove(thinking_id);
+                                    }
+                                    
+                                    // Create a message that suggests using the cached tool with recovered args
+                                    let recovery_desc = format!("\n\nNote: I've fixed some issues with the parameters:\n- {}", 
+                                        strategies.iter()
+                                            .map(|s| s.to_string())
+                                            .collect::<Vec<String>>()
+                                            .join("\n- ")
+                                    );
+                                    
+                                    let suggestion_message = format!(
+                                        "I'll help you with that. Based on your request, I can use the `{}` tool.{}\n\nWould you like me to proceed?", 
+                                        cached_tool_name,
+                                        recovery_desc
+                                    );
+                                    
+                                    let message_id = messages.write().len();
+                                    messages.write().push(
+                                        Message::new(
+                                            MessageRole::Assistant,
+                                            suggestion_message
+                                        ).with_tool_interaction(
+                                            ToolInteraction::Suggestion {
+                                                tool_name: cached_tool_name.clone(),
+                                                suggested_args: recovered.clone(),
+                                                message_idx: message_id,
+                                            }
+                                        )
+                                    );
+                                    
+                                    is_sending.set(false);
+                                    return;
+                                },
+                                ValidationState::Invalid { errors, alternative_tools, .. } => {
+                                    // Cached arguments are invalid, better use LLM to create new parameters
+                                    eprintln!("Cached tool parameters are invalid: {}", errors.join(", "));
+                                    // Fall through to normal flow to let LLM handle it
+                                    
+                                    // If we have alternative tools, add a system message about them
+                                    if !alternative_tools.is_empty() {
+                                        let mut alt_message = "Cache suggests these alternative tools:\n".to_string();
+                                        for alt_tool in &alternative_tools {
+                                            if let Some(tool) = tools_clone.iter().find(|t| &t.name == alt_tool) {
+                                                alt_message.push_str(&format!("- {} ({})\n", tool.name, tool.description));
+                                            }
+                                        }
+                                        eprintln!("{}", alt_message);
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        eprintln!("Cached tool suggestion doesn't meet confidence threshold: {} < {}", 
+                            cached_confidence, conf_threshold);
+                    }
+                }
+                
+                // Log cache statistics for debugging
+                let stats = cache.stats();
+                if let Ok(stats_json) = serde_json::to_string(&stats) {
+                    eprintln!("Tool selection cache stats: {}", stats_json);
+                }
+                
+                // If no cached suggestion or it didn't meet the threshold, continue with normal flow
                 // Create system message with context about available tools
                 let mut system_message = String::from("You are a helpful AI assistant with access to special tools. ");
                 
@@ -327,9 +582,26 @@ pub fn ChatTab(
                         system_message.push_str("\"Let me try the [tool_name] tool\"\n");
                     }
                     
+                    // Special hints for SQLite tools if present
+                    let has_sqlite_tools = tools_clone.iter().any(|t| 
+                        t.name == "execute_query" || 
+                        t.name == "create_table" || 
+                        t.name == "list_tables" || 
+                        t.name.contains("sql"));
+                        
+                    if has_sqlite_tools {
+                        system_message.push_str("\nIMPORTANT: I notice you have SQLite database tools available. You can use these to work with tables and data in a SQLite database. For example:\n");
+                        system_message.push_str("- Use list_tables to see what tables are available\n");
+                        system_message.push_str("- Use execute_query with a SQL query to run commands like SELECT, INSERT, UPDATE, etc.\n");
+                        system_message.push_str("- Use create_table to create new database tables\n");
+                    }
+                    
                     system_message.push_str("You must only mention tools from the above list. Other standard AI tools like 'Web Search', 'Calculator', etc. are NOT available.\n");
                     system_message.push_str("The system will detect your desire to use the tool, and the user will approve or deny the tool usage.\n");
                     system_message.push_str("If a tool would be helpful, always suggest using one of the AVAILABLE tools listed above to help the user.");
+                    
+                    // Add confidence threshold guidance
+                    system_message.push_str(&format!("\nIMPORTANT: The user's confidence threshold is set to {}. Only suggest tools when you are confident they will help address the user's query directly.", conf_threshold));
                 } else {
                     system_message.push_str("IMPORTANT: No MCP tools are currently available. Please do not suggest using any tools as they cannot be executed.");
                 }
@@ -389,6 +661,10 @@ pub fn ChatTab(
                                         )
                                         .with_tool_interaction(suggestion)
                                     );
+                                    
+                                    // Cache the tool suggestion with an estimated confidence of 0.9
+                                    // In a real implementation, we'd get this from the LLM response
+                                    cache.add(&user_input, &tool_name, 0.9, &suggested_args);
                                 } else {
                                     // Tool doesn't exist in MCP - add the message with an explanation
                                     eprintln!("Tool '{}' suggested but not available in MCP", tool_name);
@@ -432,80 +708,252 @@ pub fn ChatTab(
         });
     };
     
-    // Add function to execute a tool
+    // Modify execute_tool function to use validation pipeline
     let execute_tool = move |(tool_name, arguments): (String, Value)| {
         let message_id = messages.read().len();
         
-        // Add a tool execution message
-        messages.write().push(
-            Message::new(
-                MessageRole::Tool,
-                format!("Executing tool: {}", tool_name)
-            ).with_tool_interaction(
-                ToolInteraction::Execution {
-                    tool_name: tool_name.clone(),
-                    arguments: arguments.clone(),
-                    status: ToolExecutionStatus::Running,
-                    result: None,
-                    message_idx: message_id,
-                }
-            )
-        );
+        // Find the tool definition
+        let tool_opt = tools.read().iter().find(|t| t.name == tool_name).cloned();
         
-        let mcp_state_clone = mcp_state.clone();
-        spawn({
-            to_owned![messages, message_id, tool_name, arguments];
-            async move {
-                // Execute the tool using the same method as the tools section
-                match ToolManager::execute_tool(tool_name.clone(), arguments.clone(), &mcp_state_clone.read()).await {
-                    Ok(result) => {
-                        // Format the result
-                        let result_text = ToolManager::format_tool_result(&result);
-                        
-                        // Update the message with the result
-                        if message_id < messages.read().len() {
-                            messages.write()[message_id] = Message::new(
-                                MessageRole::Tool,
-                                format!("Tool execution completed: {}", tool_name.clone())
-                            ).with_tool_interaction(
-                                ToolInteraction::Execution {
-                                    tool_name: tool_name.clone(),
-                                    arguments,
-                                    status: ToolExecutionStatus::Completed,
-                                    result: Some(result_text.clone()),
-                                    message_idx: message_id,
+        if let Some(tool) = tool_opt {
+            // Create a fresh ValidationPipeline with current tools
+            let pipeline = ValidationPipeline::new()
+                .with_max_depth(10)
+                .with_max_string_length(1000)
+                .with_auto_fix(true)
+                .with_suggest_alternatives(true)
+                .with_max_alternatives(3)
+                .with_fallback("count", json!(5))
+                .with_fallback("limit", json!(100))
+                .with_available_tools(tools.read().clone());
+                
+            // Validate input with our pipeline
+            let validation_result = pipeline.validate_input(&tool, arguments.clone());
+            
+            match validation_result {
+                ValidationState::Valid(validated_args) | ValidationState::Sanitized { sanitized: validated_args, .. } => {
+                    // Add a tool execution message
+                    messages.write().push(
+                        Message::new(
+                            MessageRole::Tool,
+                            format!("Executing tool: {}", tool_name)
+                        ).with_tool_interaction(
+                            ToolInteraction::Execution {
+                                tool_name: tool_name.clone(),
+                                arguments: validated_args.clone(),
+                                status: ToolExecutionStatus::Running,
+                                result: None,
+                                message_idx: message_id,
+                            }
+                        )
+                    );
+                    
+                    let mcp_state_clone = mcp_state.clone();
+                    spawn({
+                        to_owned![messages, message_id, tool_name, validated_args];
+                        async move {
+                            // Execute the tool
+                            match ToolManager::execute_tool(tool_name.clone(), validated_args.clone(), &mcp_state_clone.read()).await {
+                                Ok(result) => {
+                                    // Format the result
+                                    let result_text = ToolManager::format_tool_result(&result);
+                                    
+                                    // Update the message with the result
+                                    if message_id < messages.read().len() {
+                                        messages.write()[message_id] = Message::new(
+                                            MessageRole::Tool,
+                                            format!("Tool execution completed: {}", tool_name.clone())
+                                        ).with_tool_interaction(
+                                            ToolInteraction::Execution {
+                                                tool_name: tool_name.clone(),
+                                                arguments: validated_args,
+                                                status: ToolExecutionStatus::Completed,
+                                                result: Some(result_text.clone()),
+                                                message_idx: message_id,
+                                            }
+                                        );
+                                        
+                                        // Also add the result to the chat history for the AI
+                                        messages.write().push(
+                                            Message::new(
+                                                MessageRole::System,
+                                                format!("Tool '{}' returned result:\n\n{}", tool_name, result_text)
+                                            )
+                                        );
+                                    }
+                                },
+                                Err(e) => {
+                                    // Update message with error
+                                    if message_id < messages.read().len() {
+                                        messages.write()[message_id] = Message::new(
+                                            MessageRole::Tool,
+                                            format!("Tool execution failed: {}", tool_name)
+                                        ).with_tool_interaction(
+                                            ToolInteraction::Execution {
+                                                tool_name,
+                                                arguments: validated_args,
+                                                status: ToolExecutionStatus::Failed(format!("{}", e)),
+                                                result: None,
+                                                message_idx: message_id,
+                                            }
+                                        );
+                                    }
                                 }
-                            );
-                            
-                            // Also add the result to the chat history for the AI
-                            messages.write().push(
-                                Message::new(
-                                    MessageRole::System,
-                                    format!("Tool '{}' returned result:\n\n{}", tool_name, result_text)
-                                )
-                            );
+                            }
                         }
-                    },
-                    Err(e) => {
-                        // Update message with error
-                        if message_id < messages.read().len() {
-                            messages.write()[message_id] = Message::new(
-                                MessageRole::Tool,
-                                format!("Tool execution failed: {}", tool_name)
-                            ).with_tool_interaction(
-                                ToolInteraction::Execution {
-                                    tool_name,
-                                    arguments,
-                                    status: ToolExecutionStatus::Failed(format!("{}", e)),
-                                    result: None,
-                                    message_idx: message_id,
+                    });
+                },
+                ValidationState::Recovered { recovered, strategies, errors, .. } => {
+                    // Add message about recovery
+                    let recovery_description = strategies.iter()
+                        .map(|s| s.to_string())
+                        .collect::<Vec<String>>()
+                        .join("\n");
+                    
+                    messages.write().push(
+                        Message::new(
+                            MessageRole::System,
+                            format!("Input validation had issues but was recovered:\n{}\n\nProceeding with fixed input.", recovery_description)
+                        )
+                    );
+                    
+                    // Now execute with recovered args
+                    messages.write().push(
+                        Message::new(
+                            MessageRole::Tool,
+                            format!("Executing tool: {}", tool_name)
+                        ).with_tool_interaction(
+                            ToolInteraction::Execution {
+                                tool_name: tool_name.clone(),
+                                arguments: recovered.clone(),
+                                status: ToolExecutionStatus::Running,
+                                result: None,
+                                message_idx: message_id + 1, // +1 because we added a message
+                            }
+                        )
+                    );
+                    
+                    let message_idx = message_id + 1;
+                    let mcp_state_clone = mcp_state.clone();
+                    spawn({
+                        to_owned![messages, message_idx, tool_name, recovered];
+                        async move {
+                            // Execute the tool
+                            match ToolManager::execute_tool(tool_name.clone(), recovered.clone(), &mcp_state_clone.read()).await {
+                                Ok(result) => {
+                                    // Format the result
+                                    let result_text = ToolManager::format_tool_result(&result);
+                                    
+                                    // Update the message with the result
+                                    if message_idx < messages.read().len() {
+                                        messages.write()[message_idx] = Message::new(
+                                            MessageRole::Tool,
+                                            format!("Tool execution completed: {}", tool_name.clone())
+                                        ).with_tool_interaction(
+                                            ToolInteraction::Execution {
+                                                tool_name: tool_name.clone(),
+                                                arguments: recovered,
+                                                status: ToolExecutionStatus::Completed,
+                                                result: Some(result_text.clone()),
+                                                message_idx,
+                                            }
+                                        );
+                                        
+                                        // Also add the result to the chat history for the AI
+                                        messages.write().push(
+                                            Message::new(
+                                                MessageRole::System,
+                                                format!("Tool '{}' returned result:\n\n{}", tool_name, result_text)
+                                            )
+                                        );
+                                    }
+                                },
+                                Err(e) => {
+                                    // Update message with error
+                                    if message_idx < messages.read().len() {
+                                        messages.write()[message_idx] = Message::new(
+                                            MessageRole::Tool,
+                                            format!("Tool execution failed: {}", tool_name)
+                                        ).with_tool_interaction(
+                                            ToolInteraction::Execution {
+                                                tool_name,
+                                                arguments: recovered,
+                                                status: ToolExecutionStatus::Failed(format!("{}", e)),
+                                                result: None,
+                                                message_idx,
+                                            }
+                                        );
+                                    }
                                 }
-                            );
+                            }
+                        }
+                    });
+                },
+                ValidationState::Invalid { errors, alternative_tools, .. } => {
+                    // Add message about validation failure
+                    let error_description = errors.join("\n");
+                    
+                    let mut message = format!(
+                        "Tool validation failed for '{}':\n{}", 
+                        tool_name, 
+                        error_description
+                    );
+                    
+                    // Add alternative tools if available
+                    if !alternative_tools.is_empty() {
+                        message.push_str("\n\nAlternative tools you might want to use instead:\n");
+                        
+                        // For each alternative tool, create options that the user can click
+                        let alt_tool_descriptions: Vec<String> = alternative_tools.iter()
+                            .filter_map(|alt_tool| {
+                                tools.read().iter().find(|t| t.name == *alt_tool).map(|tool| {
+                                    format!("- {} ({})", tool.name, tool.description)
+                                })
+                            })
+                            .collect();
+                        
+                        // Add the descriptions to the message
+                        message.push_str(&alt_tool_descriptions.join("\n"));
+                        
+                        // Create clickable options for users
+                        for alt_tool in &alternative_tools {
+                            if let Some(tool) = tools.read().iter().find(|t| t.name == *alt_tool) {
+                                let suggest_message = format!("Try using {} instead", tool.name);
+                                // Get the message index before the mutable borrow
+                                let message_idx = messages.read().len();
+                                messages.write().push(
+                                    Message::new(
+                                        MessageRole::System,
+                                        suggest_message
+                                    ).with_tool_interaction(
+                                        ToolInteraction::Suggestion {
+                                            tool_name: alt_tool.clone(),
+                                            suggested_args: json!({}),  // Empty args to start
+                                            message_idx,
+                                        }
+                                    )
+                                );
+                            }
                         }
                     }
+                    
+                    messages.write().push(
+                        Message::new(
+                            MessageRole::System,
+                            message
+                        )
+                    );
                 }
             }
-        });
+        } else {
+            // Tool not found
+            messages.write().push(
+                Message::new(
+                    MessageRole::System,
+                    format!("Tool '{}' not found in available tools.", tool_name)
+                )
+            );
+        }
     };
     
     // Function to handle tool cancellation
@@ -580,6 +1028,27 @@ pub fn ChatTab(
                         "Retry"
                     }
                 }
+                
+                // Add confidence threshold slider
+                div { class: "confidence-controls",
+                    label { for: "confidence-threshold", "Tool Confidence Threshold:" }
+                    input {
+                        id: "confidence-threshold",
+                        class: "confidence-slider",
+                        r#type: "range",
+                        min: "0.1",
+                        max: "1.0",
+                        step: "0.1",
+                        value: "{confidence_threshold}",
+                        oninput: move |evt| {
+                            if let Ok(val) = evt.value().parse::<f64>() {
+                                confidence_threshold.set(val);
+                            }
+                        }
+                    }
+                    span { class: "confidence-value", "{confidence_threshold}" }
+                }
+                
                 if let Some(error) = &model_selection.read().error {
                     div { class: "model-error", 
                         // Show more user-friendly error message
