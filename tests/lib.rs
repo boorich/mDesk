@@ -6,6 +6,7 @@ mod component_tests {
     mod tool_suggestion_test;
     mod server_manager_test;
     mod tool_selection_test;
+    mod parameter_validation_test;
 }
 
 #[cfg(test)]

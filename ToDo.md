@@ -42,33 +42,34 @@ This document outlines the next steps for developing mDesk, a native desktop app
 - [ ] Implement keyboard shortcuts for common actions
 
 ### 5. Tool Selection System Overhaul
-- [ ] Implement new LLM-based tool selection system
-  - [x] Create `RankedToolSelection` system
-    - [x] Design and implement core selection structures (`RankedToolSelection`, `ToolMatch`)
-    - [x] Implement confidence scoring and ranking logic
-    - [ ] Add parameter validation against tool schemas
-  - [x] Enhance LLM prompt engineering
-    - [x] Create structured prompts for tool ranking
-    - [x] Implement context-aware tool selection
-    - [x] Add reasoning capture for selection decisions
-    - [x] Add configurable model selection with cost considerations
-  - [ ] Build validation and processing pipeline
-    - [ ] Implement parameter validation system
-    - [ ] Create fallback strategies for low confidence matches
-    - [ ] Add logging and debugging capabilities
-  - [ ] Integration with chat system
-    - [ ] Update chat interface to show alternative tools
-    - [ ] Implement tool suggestion UI
-    - [ ] Add confidence threshold controls
-  - [ ] Prepare for agent mode
-    - [ ] Design tool chaining interface
-    - [ ] Implement decision tree logic for tool selection
-    - [ ] Add self-correction strategies
-  - [x] Testing and validation
-    - [x] Create comprehensive test suite for tool selection
-    - [x] Add model configuration options for test cost optimization
-    - [ ] Implement performance benchmarks
-    - [ ] Add monitoring for selection accuracy
+- [x] Create RankedToolSelection system
+- [x] Design and implement core selection structures (RankedToolSelection, ToolMatch)
+- [x] Enhance LLM prompt engineering
+  - [x] Context-aware tool selection
+  - [x] Capture reasoning for tool selection
+  - [x] Add configurable model selection with cost considerations
+- [x] Add parameter validation against tool schemas
+  - [x] Create ParameterValidator struct
+  - [x] Implement validation logic with JSONSchema
+  - [x] Add parameter fixing with defaults and constraints
+  - [x] Add comprehensive test suite with edge cases
+- [ ] Build validation and processing pipeline
+  - [ ] Integrate parameter validation with LLMToolSelector
+  - [ ] Add fallback strategies for failed validations
+  - [ ] Add logging and error reporting
+- [ ] Integration with chat system
+  - [ ] Update chat interface to show alternative tools
+  - [ ] Implement tool suggestion UI
+  - [ ] Add confidence threshold controls
+- [ ] Prepare for agent mode
+  - [ ] Design tool chaining interface
+  - [ ] Implement decision tree logic for tool selection
+  - [ ] Add self-correction strategies
+- [x] Testing and validation
+  - [x] Create comprehensive test suite for tool selection
+  - [x] Add model configuration options for test cost optimization
+  - [ ] Implement performance benchmarks
+  - [ ] Add monitoring for selection accuracy
 
 ## Medium Priority Tasks
 

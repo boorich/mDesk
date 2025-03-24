@@ -5,6 +5,7 @@ pub mod tool_manager;
 pub mod server_manager;
 pub mod tool_test;
 pub mod tool_selection;
+pub mod parameter_validation;
 
 pub use message::{Message, MessageRole, MessageView};
 pub use chat::ChatTab;
