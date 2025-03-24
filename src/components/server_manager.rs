@@ -585,7 +585,7 @@ fn ServerDialog(props: ServerDialogProps) -> Element {
                         label { for: "server-id", "Server ID" }
                         input { 
                             id: "server-id",
-                            class: "form-control",
+                            class: "form-control input-field",
                             value: "{id}",
                             disabled: props.is_editing,
                             placeholder: "e.g., filesystem",
@@ -597,7 +597,7 @@ fn ServerDialog(props: ServerDialogProps) -> Element {
                         label { for: "server-name", "Display Name" }
                         input { 
                             id: "server-name",
-                            class: "form-control",
+                            class: "form-control input-field",
                             value: "{name}",
                             placeholder: "e.g., Filesystem MCP",
                             oninput: move |e| name.set(e.value().clone())
@@ -608,7 +608,7 @@ fn ServerDialog(props: ServerDialogProps) -> Element {
                         label { for: "server-command", "Command" }
                         input { 
                             id: "server-command",
-                            class: "form-control",
+                            class: "form-control input-field",
                             value: "{command}",
                             placeholder: "e.g., docker",
                             oninput: move |e| command.set(e.value().clone())

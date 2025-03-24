@@ -1324,7 +1324,7 @@ html, body {
 }
 
 .add-server-button:hover {
-    background-color: var(--primary-color-dark);
+    background-color: #1d5cb6;
 }
 
 .add-server-button svg {
@@ -1483,15 +1483,16 @@ html, body {
     left: 0;
     right: 0;
     bottom: 0;
-    background-color: rgba(0, 0, 0, 0.5);
+    background-color: rgba(0, 0, 0, 0.75);
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 100;
+    z-index: 1000;
+    animation: fadeIn 0.2s ease-out;
 }
 
 .server-dialog {
-    background-color: var(--card-color);
+    background-color: #ffffff;
     border-radius: var(--border-radius);
     box-shadow: var(--shadow-lg);
     width: 100%;
@@ -1500,6 +1501,7 @@ html, body {
     overflow-y: auto;
     display: flex;
     flex-direction: column;
+    animation: dialogSlide 0.3s ease-out;
 }
 
 .dialog-header {
@@ -1555,9 +1557,17 @@ html, body {
     background-color: #f8fafc;
     font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 14px;
+    color: #333;
+    height: auto;
+}
+
+input.form-control {
+    height: 42px;
+}
+
+textarea.form-control {
     resize: vertical;
     min-height: 120px;
-    color: #333;
 }
 
 .form-control:focus {
@@ -1568,11 +1578,6 @@ html, body {
 
 .form-control::placeholder {
     color: #a0aec0;
-}
-
-textarea.form-control {
-    min-height: 80px;
-    resize: vertical;
 }
 
 .form-check {
@@ -1845,19 +1850,7 @@ textarea.form-control {
 }
 
 /* Tool test dialog */
-.dialog-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: rgba(0, 0, 0, 0.75);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-    animation: fadeIn 0.2s ease-out;
-}
+/* Dialog styles are now consolidated at line ~1479 */
 
 .tool-test-dialog {
     background-color: #ffffff;
@@ -1930,9 +1923,17 @@ textarea.form-control {
     background-color: #f8fafc;
     font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 14px;
+    color: #333;
+    height: auto;
+}
+
+input.form-control {
+    height: 42px;
+}
+
+textarea.form-control {
     resize: vertical;
     min-height: 120px;
-    color: #333;
 }
 
 .form-control:focus {
@@ -2035,4 +2036,11 @@ textarea.form-control {
     margin-top: 0;
     margin-bottom: 8px;
     color: var(--text-color);
+}
+
+/* Custom styles for input fields */
+.input-field {
+    height: 42px !important;
+    min-height: unset !important;
+    padding: 8px 12px !important;
 }
