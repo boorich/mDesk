@@ -10,7 +10,10 @@ use crate::McpState;
 use serde_json::{Value, json};
 use crate::components::validation_pipeline::{ValidationPipeline, ValidationState, RecoveryStrategy};
 use crate::components::tool_selection_cache::ToolSelectionCache;
+use crate::components::tool_selection::{LLMToolSelector, RankedToolSelection, ToolMatch, ValidationStatus};
 use std::sync::Arc;
+use anyhow::Result;
+use tracing::{debug, info, warn, error};
 
 // Define a struct to hold OpenRouter models for the dropdown
 #[derive(Debug, Clone, PartialEq)]
@@ -38,6 +41,9 @@ pub fn ChatTab(
     api_key: Option<String>,
     mcp_state: Signal<McpState>,
 ) -> Element {
+    // Clone api_key to avoid ownership issues
+    let api_key_ref = api_key.clone();
+    
     // Chat state
     let mut messages = use_signal(Vec::<Message>::new);
     let mut input = use_signal(String::new);
@@ -63,6 +69,35 @@ pub fn ChatTab(
     let mut fetch_all_servers_tools = {
         to_owned![tools, mcp_state];
         move || {
+            // Use a static variable to track the last fetch time
+            static mut LAST_FETCH_TIME: Option<std::time::Instant> = None;
+            
+            // Only fetch if it's been at least 5 seconds since the last fetch
+            let should_fetch = unsafe {
+                match LAST_FETCH_TIME {
+                    Some(last_time) => {
+                        if last_time.elapsed() >= std::time::Duration::from_secs(5) {
+                            LAST_FETCH_TIME = Some(std::time::Instant::now());
+                            true
+                        } else {
+                            false
+                        }
+                    },
+                    None => {
+                        // First time fetching
+                        LAST_FETCH_TIME = Some(std::time::Instant::now());
+                        true
+                    }
+                }
+            };
+            
+            // Skip if we recently fetched tools
+            if !should_fetch && !tools.read().is_empty() {
+                eprintln!("Skipping tool fetch - last fetch was too recent");
+                return;
+            }
+            
+            eprintln!("Initiating tool fetch from all servers");
             spawn({
                 to_owned![tools, mcp_state];
                 async move {
@@ -106,15 +141,18 @@ pub fn ChatTab(
     };
     
     // Call the function to fetch tools during initialization
-    fetch_all_servers_tools();
+    // Only call this if we haven't preloaded tools yet
+    if !unsafe { PRELOAD_CALLED } {
+        fetch_all_servers_tools();
+    }
     
-    // Periodically refresh tools (every 30 seconds)
+    // Periodically refresh tools (every 2 minutes instead of 30 seconds)
     use_coroutine(move |_rx: dioxus::prelude::UnboundedReceiver<()>| {
         to_owned![fetch_all_servers_tools];
         async move {
             loop {
-                // Wait 30 seconds
-                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                // Wait 2 minutes (120 seconds)
+                tokio::time::sleep(std::time::Duration::from_secs(120)).await;
                 
                 // Fetch tools
                 fetch_all_servers_tools();
@@ -134,16 +172,59 @@ pub fn ChatTab(
         .with_available_tools(tools.read().clone());
     
     // Tool selection cache
-    let cache = Arc::new(ToolSelectionCache::new(
+    let cache_arc = Arc::new(ToolSelectionCache::new(
         std::time::Duration::from_secs(300), // 5 minute cache expiration
         100 // Max 100 entries
     ));
     
-    // Debug MCP state and try to preload tools immediately if possible
-    eprintln!("ChatTab received MCP client state: {}", if mcp_state.read().client.is_some() { "Client available" } else { "No client available" });
+    // Store cache in a signal so it can be accessed from multiple closures
+    let cache = use_signal(|| cache_arc.clone());
     
-    // Preload tools if we don't have any and the MCP client is available
-    if tools.read().is_empty() && mcp_state.read().client.is_some() {
+    // Tool selector using LLM
+    let mut tool_selector = use_signal(|| {
+        // Get the OpenRouter API key
+        let api_key = match &api_key_ref {
+            Some(key) => key.clone(),
+            None => env::var("OPENROUTER_API_KEY").unwrap_or_default(),
+        };
+        
+        // Create the tool selector with the same model as the chat
+        let model = model_selection.read().selected_model.clone();
+        let selector = LLMToolSelector::new(api_key, model.clone())
+            .with_cache(cache.read().clone())
+            .with_max_prompt_tools(25); // Limit to 25 tools per prompt
+            
+        eprintln!("Created LLMToolSelector with model: {}", model);
+        selector
+    });
+    
+    // Debug MCP state and try to preload tools immediately if possible
+    static mut CLIENT_STATE_LOGGED: bool = false;
+    let should_log = unsafe {
+        if CLIENT_STATE_LOGGED {
+            false
+        } else {
+            CLIENT_STATE_LOGGED = true;
+            true
+        }
+    };
+    
+    if should_log {
+        eprintln!("ChatTab received MCP client state: {}", if mcp_state.read().client.is_some() { "Client available" } else { "No client available" });
+    }
+    
+    // Only preload tools if we don't have any and fetch_all_servers_tools hasn't been called yet
+    static mut PRELOAD_CALLED: bool = false;
+    let should_preload = unsafe {
+        if PRELOAD_CALLED {
+            false
+        } else {
+            PRELOAD_CALLED = true;
+            tools.read().is_empty() && mcp_state.read().client.is_some()
+        }
+    };
+    
+    if should_preload {
         eprintln!("Preloading tools during ChatTab initialization");
         let tools_clone = tools.clone();
         let mcp_clone = mcp_state.clone();
@@ -168,8 +249,8 @@ pub fn ChatTab(
     }
     
     // OpenRouter client setup
-    let openrouter_api_key = match api_key {
-        Some(key) => key,
+    let openrouter_api_key = match &api_key_ref {
+        Some(key) => key.clone(),
         None => env::var("OPENROUTER_API_KEY").unwrap_or_default(),
     };
     
@@ -391,13 +472,13 @@ pub fn ChatTab(
         let conf_threshold = *confidence_threshold.read();
         
         // Get a reference to the tool selection cache
-        let cache = cache.clone();
+        let cache_ref = cache.read().clone();
         
         spawn({
-            to_owned![messages, is_sending, user_input, mcp_state];
+            to_owned![messages, is_sending, user_input, mcp_state, conf_threshold];
             async move {
                 // First, check the tool selection cache
-                let cached_tool_suggestion = cache.get(&user_input);
+                let cached_tool_suggestion = cache_ref.get(&user_input);
                 
                 if let Some((cached_tool_name, cached_confidence, cached_args)) = cached_tool_suggestion {
                     // Only use cached suggestion if confidence meets threshold
@@ -429,7 +510,7 @@ pub fn ChatTab(
                                     
                                     // Create a message that suggests using the cached tool
                                     let suggestion_message = format!(
-                                        "I'll help you with that. Based on your request, I can use the `{}` tool.\n\nWould you like me to proceed?", 
+                                        "I'll help you with that using the `{}` tool.\n\nParameters prepared based on your request.\n\nWould you like me to proceed?", 
                                         cached_tool_name
                                     );
                                     
@@ -466,7 +547,7 @@ pub fn ChatTab(
                                     };
                                     
                                     let suggestion_message = format!(
-                                        "I'll help you with that. Based on your request, I can use the `{}` tool.{}\n\nWould you like me to proceed?", 
+                                        "I'll help you with that using the `{}` tool.{}\n\nWould you like me to proceed?", 
                                         cached_tool_name,
                                         change_desc
                                     );
@@ -504,7 +585,7 @@ pub fn ChatTab(
                                     );
                                     
                                     let suggestion_message = format!(
-                                        "I'll help you with that. Based on your request, I can use the `{}` tool.{}\n\nWould you like me to proceed?", 
+                                        "I'll help you with that using the `{}` tool.{}\n\nWould you like me to proceed?", 
                                         cached_tool_name,
                                         recovery_desc
                                     );
@@ -551,7 +632,7 @@ pub fn ChatTab(
                 }
                 
                 // Log cache statistics for debugging
-                let stats = cache.stats();
+                let stats = cache_ref.stats();
                 if let Ok(stats_json) = serde_json::to_string(&stats) {
                     eprintln!("Tool selection cache stats: {}", stats_json);
                 }
@@ -633,8 +714,151 @@ pub fn ChatTab(
                             let message_content = choice.message.content.clone();
                             let message_id = messages.write().len();
                             
+                            // Use the new tool_selection algorithm first
+                            let model = model_selection.read().selected_model.clone();
+                            let use_new_selector = true; // Set to false to quickly revert if needed
+                            
+                            if use_new_selector {
+                                let user_input_clone = user_input.clone();
+                                
+                                // Only try using the tool selector if we actually have tools
+                                if tools_clone.is_empty() {
+                                    // No tools available, just add the regular message
+                                    messages.write().push(Message::new(
+                                        MessageRole::Assistant,
+                                        message_content,
+                                    ));
+                                    is_sending.set(false);
+                                    return;
+                                }
+                                
+                                // Spawn a task to select tools asynchronously
+                                spawn({
+                                    to_owned![messages, is_sending, tools_clone, cache_ref, conf_threshold, tool_selector];
+                                    async move {
+                                        // Use the tool selector to find appropriate tools
+                                        let selection_result = match tool_selector.read().select_tools(&user_input_clone, tools_clone.clone()).await {
+                                            Ok(result) => Ok(result),
+                                            Err(e) => {
+                                                error!("Tool selection failed: {}", e);
+                                                
+                                                // Try again with a better formed prompt or fallback
+                                                if e.to_string().contains("parse LLM response as JSON") {
+                                                    // This is likely a formatting issue with the LLM response
+                                                    // Let's try legacy tool detection as a fallback
+                                                    info!("Falling back to legacy tool detection due to JSON parsing error");
+                                                    
+                                                    if let Some((tool_name, suggested_args)) = 
+                                                        ToolManager::detect_tool_suggestion(&message_content, &tools_clone) {
+                                                        
+                                                        // Check if this tool exists
+                                                        if let Some(tool) = tools_clone.iter().find(|t| t.name == tool_name) {
+                                                            let confidence = 0.8; // Assume reasonably high confidence
+                                                            
+                                                            info!("Legacy detection found tool: {}", tool_name);
+                                                            
+                                                            // Create a basic tool match
+                                                            let matched_tool = ToolMatch {
+                                                                tool: tool.clone(),
+                                                                confidence,
+                                                                suggested_parameters: Some(suggested_args.clone()),
+                                                                reasoning: "Selected based on tool name mention in response".into(),
+                                                                validation_status: ValidationStatus::Valid,
+                                                            };
+                                                            
+                                                            Ok(RankedToolSelection::new(vec![matched_tool]))
+                                                        } else {
+                                                            Err(e)
+                                                        }
+                                                    } else {
+                                                        Err(e)
+                                                    }
+                                                } else {
+                                                    Err(e)
+                                                }
+                                            }
+                                        };
+                                        
+                                        match selection_result {
+                                            Ok(selection) => {
+                                                info!("Tool selection complete: {}", selection.validation_summary());
+                                                let valid_matches = selection.valid_matches(conf_threshold);
+                                                
+                                                if !valid_matches.is_empty() {
+                                                    // Use the best match
+                                                    if let Some(best_match) = selection.best_match() {
+                                                        if best_match.confidence >= conf_threshold && best_match.is_valid() {
+                                                            let tool_name = best_match.tool.name.clone();
+                                                            let suggested_args = best_match.suggested_parameters.clone().unwrap_or(json!({}));
+                                                            let reasoning = best_match.reasoning.clone();
+                                                            
+                                                            info!("Using tool: {} with confidence {}", tool_name, best_match.confidence);
+                                                            
+                                                            // Format a message that includes the reasoning from the tool selector
+                                                            let suggestion_message = format!(
+                                                                "I'll help you with that using the `{}` tool.\n\nParameters prepared based on your request.\n\nWould you like me to proceed?", 
+                                                                tool_name
+                                                            );
+                                                            
+                                                            let message_id = messages.read().len();
+                                                            messages.write().push(
+                                                                Message::new(
+                                                                    MessageRole::Assistant,
+                                                                    suggestion_message
+                                                                ).with_tool_interaction(
+                                                                    ToolInteraction::Suggestion {
+                                                                        tool_name: tool_name.clone(),
+                                                                        suggested_args: suggested_args.clone(),
+                                                                        message_idx: message_id,
+                                                                    }
+                                                                )
+                                                            );
+                                                            
+                                                            is_sending.set(false);
+                                                            return;
+                                                        }
+                                                    }
+                                                }
+                                                
+                                                // If we get here, no suitable tool was found, continue with regular message
+                                                info!("No suitable tool found, using regular message");
+                                                messages.write().push(Message::new(
+                                                    MessageRole::Assistant,
+                                                    message_content,
+                                                ));
+                                                is_sending.set(false);
+                                            },
+                                            Err(e) => {
+                                                // Log the error and fall back to the regular message
+                                                error!("Tool selection failed: {}", e);
+                                                
+                                                // Add a detailed message for debugging in dev mode
+                                                if cfg!(debug_assertions) {
+                                                    // Add the error as a system message when in debug mode
+                                                    messages.write().push(Message::new(
+                                                        MessageRole::System,
+                                                        format!("Tool selection failed (debug info): {}", e)
+                                                    ));
+                                                }
+                                                
+                                                // Continue with the regular message
+                                                messages.write().push(Message::new(
+                                                    MessageRole::Assistant,
+                                                    message_content,
+                                                ));
+                                                is_sending.set(false);
+                                            }
+                                        }
+                                    }
+                                });
+                                
+                                // We've handled the message in the async task, so return early
+                                return;
+                            }
+                            
+                            // Original tool suggestion detection (fallback approach)
                             // Check if the message contains a tool suggestion
-                            eprintln!("Checking message for tool suggestions...");
+                            eprintln!("Checking message for tool suggestions using legacy detection...");
                             
                             if let Some((tool_name, suggested_args)) = 
                                 ToolManager::detect_tool_suggestion(&message_content, &tools_clone) {
@@ -664,7 +888,7 @@ pub fn ChatTab(
                                     
                                     // Cache the tool suggestion with an estimated confidence of 0.9
                                     // In a real implementation, we'd get this from the LLM response
-                                    cache.add(&user_input, &tool_name, 0.9, &suggested_args);
+                                    cache_ref.add(&user_input, &tool_name, 0.9, &suggested_args);
                                 } else {
                                     // Tool doesn't exist in MCP - add the message with an explanation
                                     eprintln!("Tool '{}' suggested but not available in MCP", tool_name);
@@ -1082,7 +1306,24 @@ pub fn ChatTab(
                     class: "model-dropdown",
                     disabled: model_selection.read().loading || model_selection.read().models.is_empty(),
                     value: "{model_selection.read().selected_model}",
-                    onchange: move |evt| model_selection.write().selected_model = evt.value().clone(),
+                    onchange: move |evt| {
+                        let new_model = evt.value().clone();
+                        model_selection.write().selected_model = new_model.clone();
+                        
+                        // Update the tool_selector with the new model
+                        let api_key = match &api_key_ref {
+                            Some(key) => key.clone(),
+                            None => env::var("OPENROUTER_API_KEY").unwrap_or_default(),
+                        };
+                        
+                        // Create a new selector with the updated model
+                        let new_selector = LLMToolSelector::new(api_key, new_model.clone())
+                            .with_cache(cache.read().clone())
+                            .with_max_prompt_tools(25); // Limit to 25 tools per prompt
+                            
+                        eprintln!("Updated LLMToolSelector to use model: {}", new_model);
+                        tool_selector.set(new_selector);
+                    },
                     if model_selection.read().models.is_empty() {
                         option { value: "", disabled: true,
                             if model_selection.read().loading {

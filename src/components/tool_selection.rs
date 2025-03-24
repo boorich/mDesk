@@ -296,18 +296,24 @@ impl LLMToolSelector {
             .ok_or_else(|| anyhow!("No response choices available"))?
             .message.content.clone();
 
-        let fixed: Value = serde_json::from_str(&content)
+        debug!("LLM response content: {}", content);
+        if content.is_empty() {
+            return Err(anyhow!("Empty response from LLM"));
+        }
+
+        let response_value: Value = serde_json::from_str(&content)
             .map_err(|e| {
                 error!("Failed to parse LLM response as JSON: {}", e);
-                anyhow!("Failed to parse fixed parameters as JSON: {}", e)
+                error!("Raw response content: '{}'", content);
+                anyhow!("Failed to parse LLM response as JSON: {}", e)
             })?;
 
         // Validate the fixed parameters
-        if ParameterValidator::validate_parameters(tool, &fixed).is_ok() {
+        if ParameterValidator::validate_parameters(tool, &response_value).is_ok() {
             info!("LLM successfully fixed parameters");
-            Ok((fixed.clone(), ValidationStatus::Fixed {
+            Ok((response_value.clone(), ValidationStatus::Fixed {
                 original: invalid_params.clone(),
-                fixed
+                fixed: response_value,
             }))
         } else {
             error!("LLM failed to fix parameters");
@@ -318,6 +324,11 @@ impl LLMToolSelector {
     /// Selects appropriate tools based on user intent
     #[instrument(skip(self, available_tools), fields(num_tools = available_tools.len()))]
     pub async fn select_tools(&self, query: &str, available_tools: Vec<Tool>) -> Result<RankedToolSelection> {
+        // Check if we have any tools available
+        if available_tools.is_empty() {
+            return Err(anyhow!("No tools available for selection"));
+        }
+        
         // Check cache first
         if let Some((tool_name, confidence, params)) = self.cache.get(query) {
             info!("Using cached tool selection for query: {}", query);
@@ -364,9 +375,15 @@ impl LLMToolSelector {
                 .ok_or_else(|| anyhow!("No response choices available"))?
                 .message.content.clone();
 
+            debug!("LLM response content: {}", content);
+            if content.is_empty() {
+                return Err(anyhow!("Empty response from LLM"));
+            }
+
             let response_value: Value = serde_json::from_str(&content)
                 .map_err(|e| {
                     error!("Failed to parse LLM response as JSON: {}", e);
+                    error!("Raw response content: '{}'", content);
                     anyhow!("Failed to parse LLM response as JSON: {}", e)
                 })?;
 

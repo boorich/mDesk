@@ -1579,6 +1579,42 @@ fn McpDemo() -> Element {
                             
                             // Create a function to fetch tools from all servers
                             let mut fetch_all_servers_tools = || {
+                                // Use a static variable to track the last fetch time
+                                static mut LAST_FETCH_TIME: Option<std::time::Instant> = None;
+                                
+                                // Only fetch if we don't have tools or if it's been at least 5 seconds
+                                let should_fetch = unsafe {
+                                    if !tools.read().is_empty() {
+                                        // We already have tools - check if we should refresh
+                                        match LAST_FETCH_TIME {
+                                            Some(last_time) => {
+                                                if last_time.elapsed() >= std::time::Duration::from_secs(5) {
+                                                    LAST_FETCH_TIME = Some(std::time::Instant::now());
+                                                    true
+                                                } else {
+                                                    false
+                                                }
+                                            },
+                                            None => {
+                                                // First time fetching
+                                                LAST_FETCH_TIME = Some(std::time::Instant::now());
+                                                true
+                                            }
+                                        }
+                                    } else {
+                                        // No tools yet - definitely fetch
+                                        LAST_FETCH_TIME = Some(std::time::Instant::now());
+                                        true
+                                    }
+                                };
+                                
+                                // Skip if we recently fetched tools and already have some
+                                if !should_fetch {
+                                    eprintln!("Skipping tool fetch in main - last fetch was too recent");
+                                    return;
+                                }
+                                
+                                eprintln!("Initiating tool fetch from all servers in main");
                                 let mut all_tools = Vec::new();
                                 let active_clients = mcp_state.read().active_clients.clone();
                                 
