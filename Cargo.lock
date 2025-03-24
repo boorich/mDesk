@@ -2849,6 +2849,7 @@ checksum = "2532096657941c2fea9c289d370a250971c689d4f143798ff67113ec042024a5"
 [[package]]
 name = "mcp-client"
 version = "1.0.7"
+source = "git+https://github.com/modelcontextprotocol/rust-sdk.git#31493cfbcc42b044b18a664f3facbf8924703354"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2871,6 +2872,7 @@ dependencies = [
 [[package]]
 name = "mcp-core"
 version = "1.0.7"
+source = "git+https://github.com/modelcontextprotocol/rust-sdk.git#31493cfbcc42b044b18a664f3facbf8924703354"
 dependencies = [
  "anyhow",
  "async-trait",

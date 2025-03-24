@@ -39,6 +39,7 @@ const FAVICON: Asset = asset!("/assets/favicon.ico");
 const MAIN_CSS: Asset = asset!("/assets/main.css");
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 const MDESK_CSS: Asset = asset!("/assets/mdesk.css");
+const LOGO: Asset = asset!("/assets/logo.png");
 
 fn main() {
     // Load environment variables
@@ -550,20 +551,10 @@ fn McpDemo() -> Element {
             // Sidebar
             aside { class: "sidebar",
                 div { class: "sidebar-header",
-                    svg {
+                    img {
                         class: "app-logo",
-                        width: "32",
-                        height: "32",
-                        view_box: "0 0 24 24",
-                        fill: "none",
-                        xmlns: "http://www.w3.org/2000/svg",
-                        path {
-                            d: "M10 4H14C18.4183 4 22 7.58172 22 12C22 16.4183 18.4183 20 14 20H4V12C4 7.58172 7.58172 4 12 4",
-                            stroke: "currentColor",
-                            stroke_width: "2",
-                            stroke_linecap: "round",
-                            stroke_linejoin: "round"
-                        }
+                        src: "{LOGO}",
+                        alt: "mDesk Logo"
                     }
                     div { class: "app-title", "mDesk" }
                     
