@@ -24,7 +24,7 @@ impl ParameterValidator {
     }
 
     /// Creates a default value based on schema constraints
-    fn create_default_value(prop_schema: &Value) -> Value {
+    pub fn create_default_value(prop_schema: &Value) -> Value {
         if let Some(default) = prop_schema.get("default") {
             return default.clone();
         }

@@ -4,6 +4,8 @@ use crate::openrouter::{OpenRouterClient, ChatMessage};
 use crate::components::parameter_validation::ParameterValidator;
 use anyhow::{Result, anyhow};
 use tracing::{debug, error, info, warn, instrument};
+use std::sync::Arc;
+use crate::components::tool_selection_cache::ToolSelectionCache;
 
 #[derive(Debug, Clone)]
 pub enum ValidationStatus {
@@ -81,6 +83,26 @@ impl RankedToolSelection {
             })
             .collect()
     }
+    
+    /// Get a reference to all matches in this selection
+    pub fn matches(&self) -> &[ToolMatch] {
+        &self.matches
+    }
+    
+    /// Check if this selection contains a specific tool
+    pub fn contains_tool(&self, tool_name: &str) -> bool {
+        self.matches.iter().any(|m| m.tool.name == tool_name)
+    }
+    
+    /// Get the number of matches in this selection
+    pub fn len(&self) -> usize {
+        self.matches.len()
+    }
+    
+    /// Check if there are no matches
+    pub fn is_empty(&self) -> bool {
+        self.matches.is_empty()
+    }
 
     pub fn validation_summary(&self) -> String {
         let total = self.matches.len();
@@ -101,6 +123,8 @@ impl RankedToolSelection {
 pub struct LLMToolSelector {
     client: OpenRouterClient,
     model: String,
+    cache: Arc<ToolSelectionCache>,
+    max_prompt_tools: usize,
 }
 
 impl LLMToolSelector {
@@ -109,7 +133,19 @@ impl LLMToolSelector {
         Self {
             client: OpenRouterClient::new(api_key),
             model,
+            cache: Arc::new(ToolSelectionCache::new(300, 100)), // 5 minutes TTL, 100 max entries
+            max_prompt_tools: 50, // Default limit to avoid huge prompts
         }
+    }
+    
+    pub fn with_cache(mut self, cache: Arc<ToolSelectionCache>) -> Self {
+        self.cache = cache;
+        self
+    }
+    
+    pub fn with_max_prompt_tools(mut self, max_tools: usize) -> Self {
+        self.max_prompt_tools = max_tools;
+        self
     }
 
     /// Creates a system prompt for tool selection
@@ -145,6 +181,47 @@ impl LLMToolSelector {
         }
 
         prompt
+    }
+
+    /// Creates an optimized system prompt with a subset of tools
+    #[instrument(skip(self, tools, query), fields(num_tools = tools.len()))]
+    fn create_optimized_prompt(&self, tools: &[Tool], query: &str, validation_feedback: Option<&str>) -> String {
+        // If we have too many tools, select a relevant subset
+        if tools.len() <= self.max_prompt_tools {
+            return self.create_system_prompt(tools, validation_feedback);
+        }
+        
+        debug!("Optimizing prompt - too many tools: {}", tools.len());
+        
+        // Use simple keyword matching to select relevant tools for the prompt
+        let query_lower = query.to_lowercase();
+        let mut relevance_scores: Vec<(usize, f64)> = tools.iter().enumerate()
+            .map(|(idx, tool)| {
+                let name_match = if tool.name.to_lowercase().contains(&query_lower) { 1.0 } else { 0.0 };
+                let desc_match = if tool.description.to_lowercase().contains(&query_lower) { 0.5 } else { 0.0 };
+                
+                // Calculate a simple relevance score
+                (idx, name_match + desc_match)
+            })
+            .collect();
+        
+        // Sort by relevance score (descending)
+        relevance_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        
+        // Select top tools
+        let selected_indices: Vec<usize> = relevance_scores.iter()
+            .take(self.max_prompt_tools)
+            .map(|(idx, _)| *idx)
+            .collect();
+        
+        // Create a vector of selected tools (clone them to avoid reference issues)
+        let selected_tools: Vec<Tool> = selected_indices.iter()
+            .map(|&idx| tools[idx].clone())
+            .collect();
+        
+        debug!("Reduced tool count for prompt from {} to {}", tools.len(), selected_tools.len());
+        
+        self.create_system_prompt(&selected_tools, validation_feedback)
     }
 
     #[instrument(skip(self, tool, parameters), fields(tool_name = %tool.name))]
@@ -240,13 +317,21 @@ impl LLMToolSelector {
     /// Selects appropriate tools based on user intent
     #[instrument(skip(self, available_tools), fields(num_tools = available_tools.len()))]
     pub async fn select_tools(&self, query: &str, available_tools: Vec<Tool>) -> Result<RankedToolSelection> {
+        // Check cache first if the query should be cached
+        if self.cache.should_cache(query) {
+            if let Some(cached) = self.cache.get(query, &available_tools) {
+                info!("Using cached tool selection for query: {}", query);
+                return Ok(cached);
+            }
+        }
+        
         let mut validation_feedback = None;
         let mut attempts = 0;
         const MAX_ATTEMPTS: u32 = 2;
 
         while attempts < MAX_ATTEMPTS {
             info!("Tool selection attempt {}/{}", attempts + 1, MAX_ATTEMPTS);
-            let system_prompt = self.create_system_prompt(&available_tools, validation_feedback.as_deref());
+            let system_prompt = self.create_optimized_prompt(&available_tools, query, validation_feedback.as_deref());
             
             let messages = vec![
                 ChatMessage {
@@ -332,8 +417,13 @@ impl LLMToolSelector {
             let selection = RankedToolSelection::new(matches);
             info!("{}", selection.validation_summary());
 
-            // If we have any valid matches, return them
+            // If we have any valid matches, cache the result and return it
             if selection.matches.iter().any(|m| m.is_valid()) {
+                // Store in cache if appropriate
+                if self.cache.should_cache(query) {
+                    self.cache.store(query, &available_tools, selection.clone());
+                }
+                
                 return Ok(selection);
             }
 
@@ -346,5 +436,33 @@ impl LLMToolSelector {
         // If we get here, we've exceeded attempts with no valid matches
         error!("Failed to get valid tool matches after {} attempts", MAX_ATTEMPTS);
         Err(anyhow!("Failed to get valid tool matches after {} attempts", MAX_ATTEMPTS))
+    }
+    
+    /// Gets the current cache statistics
+    pub fn cache_stats(&self) -> serde_json::Value {
+        let stats = self.cache.stats();
+        serde_json::json!(stats)
+    }
+    
+    /// Invalidates the tool selection cache
+    pub fn invalidate_cache(&self) {
+        self.cache.invalidate_all();
+    }
+    
+    /// Process multiple tool selections in batch
+    #[instrument(skip(self, queries, available_tools))]
+    pub async fn batch_select_tools(
+        &self, 
+        queries: &[String], 
+        available_tools: Vec<Tool>
+    ) -> Vec<Result<RankedToolSelection>> {
+        let mut results = Vec::with_capacity(queries.len());
+        
+        for query in queries {
+            let result = self.select_tools(query, available_tools.clone()).await;
+            results.push(result);
+        }
+        
+        results
     }
 } 

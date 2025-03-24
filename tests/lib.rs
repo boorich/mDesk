@@ -8,6 +8,7 @@ mod component_tests {
     mod tool_selection_test;
     mod parameter_validation_test;
     mod validation_pipeline_test;
+    mod tool_selection_cache_test;
 }
 
 #[cfg(test)]

@@ -7,6 +7,7 @@ pub mod tool_test;
 pub mod tool_selection;
 pub mod parameter_validation;
 pub mod validation_pipeline;
+pub mod tool_selection_cache;
 
 pub use message::{Message, MessageRole, MessageView};
 pub use chat::ChatTab;
@@ -16,3 +17,4 @@ pub use server_manager::ServerManager;
 pub use tool_test::ToolTestModal;
 pub use tool_selection::{RankedToolSelection, ToolMatch};
 pub use validation_pipeline::{ValidationPipeline, ValidationState};
+pub use tool_selection_cache::ToolSelectionCache;
