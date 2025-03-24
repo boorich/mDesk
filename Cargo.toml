@@ -26,6 +26,8 @@ uuid = { version = "1.4", features = ["v4", "serde"] }
 regex = "1.10.2"
 anyhow = "1.0"
 jsonschema = "0.17"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [features]
 default = ["desktop"]

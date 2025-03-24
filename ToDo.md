@@ -46,17 +46,33 @@ This document outlines the next steps for developing mDesk, a native desktop app
 - [x] Design and implement core selection structures (RankedToolSelection, ToolMatch)
 - [x] Enhance LLM prompt engineering
   - [x] Context-aware tool selection
-  - [x] Capture reasoning for tool selection
-  - [x] Add configurable model selection with cost considerations
-- [x] Add parameter validation against tool schemas
-  - [x] Create ParameterValidator struct
-  - [x] Implement validation logic with JSONSchema
-  - [x] Add parameter fixing with defaults and constraints
-  - [x] Add comprehensive test suite with edge cases
+  - [x] Capture reasoning for selections
+  - [x] Add validation feedback loop
+- [x] Add configurable model selection with cost considerations
+  - [x] Environment variable based model configuration
+  - [x] Documentation of model options and tradeoffs
+  - [x] Cost optimization guidance
+- [x] Implement parameter validation against tool schemas
+  - [x] Basic validation using jsonschema
+  - [x] Parameter fixing for common issues
+  - [x] LLM-based parameter correction
+- [x] Add comprehensive logging and error reporting
+  - [x] Structured logging with tracing
+  - [x] Detailed validation statistics
+  - [x] Error context and recovery tracking
 - [ ] Build validation and processing pipeline
-  - [ ] Integrate parameter validation with LLMToolSelector
-  - [ ] Add fallback strategies for failed validations
-  - [ ] Add logging and error reporting
+  - [ ] Input sanitization
+  - [ ] Schema compliance checks
+  - [ ] Error recovery strategies
+- [ ] Implement caching and optimization
+  - [ ] Cache frequently used tool selections
+  - [ ] Optimize LLM prompt size
+  - [ ] Batch processing for multiple tools
+- [ ] Add testing infrastructure
+  - [x] Basic unit tests
+  - [ ] Integration tests with mock LLM
+  - [ ] Performance benchmarks
+  - [ ] Validation test suite
 - [ ] Integration with chat system
   - [ ] Update chat interface to show alternative tools
   - [ ] Implement tool suggestion UI

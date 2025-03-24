@@ -2,7 +2,7 @@
 mod tests {
     use mcp_core::Tool;
     use serde_json::json;
-    use m_desk_new::components::tool_selection::{RankedToolSelection, ToolMatch, LLMToolSelector};
+    use m_desk_new::components::tool_selection::{RankedToolSelection, ToolMatch, LLMToolSelector, ValidationStatus};
     use std::env;
 
     #[test]
@@ -18,23 +18,26 @@ mod tests {
         let tool_match = ToolMatch {
             tool: test_tool,
             confidence: 0.8,
-            suggested_parameters: json!({}),
-            specific_reasoning: "Test reasoning".to_string(),
+            suggested_parameters: Some(json!({})),
+            reasoning: "Test reasoning".to_string(),
+            validation_status: ValidationStatus::Valid,
         };
 
         // Create a selection with one match
-        let selection = RankedToolSelection {
-            selections: vec![tool_match],
-            reasoning: "Test overall reasoning".to_string(),
-        };
+        let selection = RankedToolSelection::new(vec![tool_match]);
 
         // Test best_match
-        assert!(selection.best_match(0.7).is_some());
-        assert!(selection.best_match(0.9).is_none());
+        let best = selection.best_match();
+        assert!(best.is_some());
+        assert_eq!(best.unwrap().confidence, 0.8);
 
         // Test viable_matches
         assert_eq!(selection.viable_matches(0.7).len(), 1);
         assert_eq!(selection.viable_matches(0.9).len(), 0);
+
+        // Test valid_matches
+        assert_eq!(selection.valid_matches(0.7).len(), 1);
+        assert_eq!(selection.valid_matches(0.9).len(), 0);
     }
 
     /// Tests the LLM-based tool selection with real API calls.
@@ -68,7 +71,8 @@ mod tests {
                     "type": "object",
                     "properties": {
                         "path": {"type": "string"}
-                    }
+                    },
+                    "required": ["path"]
                 })
             ),
             Tool::new(
@@ -78,7 +82,8 @@ mod tests {
                     "type": "object",
                     "properties": {
                         "query": {"type": "string"}
-                    }
+                    },
+                    "required": ["query"]
                 })
             ),
         ];
@@ -97,10 +102,11 @@ mod tests {
         assert!(result.is_ok());
         
         let selection = result.unwrap();
-        assert!(!selection.selections.is_empty());
+        let matches = selection.viable_matches(0.7);
+        assert!(!matches.is_empty());
         
         // The web_search tool should be selected with high confidence
-        if let Some(best_match) = selection.best_match(0.7) {
+        if let Some(best_match) = selection.best_match() {
             assert_eq!(best_match.tool.name, "web_search");
             assert!(best_match.confidence > 0.7);
         } else {
