@@ -61,6 +61,37 @@ This document outlines the next steps for developing mDesk, a native desktop app
 - [ ] Optimize SVG renders and DOM updates
 - [ ] Add request caching for frequently accessed data
 
+## Automated Testing Tasks
+
+### 1. Unit Testing Setup
+- [ ] Create basic test structure for the project
+- [ ] Set up unit testing for core business logic
+- [ ] Implement component testing for UI elements
+  - [ ] Test Chat component rendering and message handling
+  - [ ] Test ServerManager component functionality
+  - [ ] Test ToolSuggestion and ToolExecution components
+  - [ ] Test ToolManager and ToolTest components
+
+### 2. Integration Testing
+- [ ] Develop integration tests for the OpenRouter API client
+- [ ] Create tests for MCP server communication
+- [ ] Test tool selection and execution pipeline
+- [ ] Test state management across components
+
+### 3. End-to-End Testing
+- [ ] Set up an E2E testing framework compatible with Dioxus
+- [ ] Create test scenarios for common user journeys
+  - [ ] Test the full chat conversation flow
+  - [ ] Test resource creation and management
+  - [ ] Test tool execution with different parameters
+- [ ] Implement visual regression testing for UI components
+
+### 4. Test Infrastructure
+- [ ] Set up CI/CD pipeline for automated test execution
+- [ ] Create test mocks for external dependencies (OpenRouter, MCP)
+- [ ] Implement test coverage reporting
+- [ ] Add performance benchmarking tests
+
 ## Dioxus AI Development Tools Usage
 
 ### Component Generation
