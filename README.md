@@ -44,11 +44,25 @@ The application will automatically create a default server configuration on firs
 
 ## Development
 
+### Logging
+
+mDesk uses a structured logging system based on the `tracing` crate. Logs are stored in `~/.mdesk/logs/` and are also displayed in the console during development.
+
+You can configure log levels using the `RUST_LOG` environment variable in your `.env` file:
+
+```
+# Set global level to warn, but mDesk code to debug
+RUST_LOG=warn,m_desk_new=debug
+```
+
+For more information, see the [logging documentation](docs/logging.md).
+
 ### Directory Structure
 
 - `src/` - Application source code
   - `components/` - UI components
   - `openrouter/` - OpenRouter API integration
+  - `logging/` - Logging configuration
 - `assets/` - Static assets and stylesheets
 - `public/` - Public assets served as-is
 - `docs/` - Documentation
@@ -59,6 +73,9 @@ Create a `.env` file in the project root with:
 
 ```
 OPENROUTER_API_KEY=your_openrouter_api_key
+
+# Configure logging level
+RUST_LOG=warn,m_desk_new=info
 ```
 
 ### Server Configuration

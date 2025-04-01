@@ -27,7 +27,10 @@ regex = "1.10.2"
 anyhow = "1.0"
 jsonschema = "0.17"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+dioxus-logger = "0.6.0"
+dirs = "5.0"
 
 [features]
 default = ["desktop"]

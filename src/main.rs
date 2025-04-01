@@ -1,4 +1,6 @@
 use dioxus::prelude::*;
+use tracing::{info, debug, warn, error};
+
 use mcp_client::{
     ClientCapabilities, ClientInfo, Error as McpError, McpClient, McpClientTrait, McpService,
     transport::stdio::{StdioTransport, StdioTransportHandle},
@@ -13,6 +15,7 @@ use dotenv::dotenv;
 use crate::server_config::{ServerConfigs};
 
 mod components;
+mod logging;
 mod openrouter;
 mod server_config;
 
@@ -23,8 +26,8 @@ use server_config::ServerConfig;
 // Load environment variables from .env file if it exists
 fn load_env() {
     match dotenv() {
-        Ok(_) => eprintln!("Loaded environment from .env file"),
-        Err(_) => eprintln!("No .env file found, using default environment"),
+        Ok(_) => info!("Loaded environment from .env file"),
+        Err(_) => warn!("No .env file found, using default environment"),
     }
 }
 
@@ -42,10 +45,20 @@ const MDESK_CSS: Asset = asset!("/assets/mdesk.css");
 const LOGO: Asset = asset!("/assets/logo.png");
 
 fn main() {
+    // Initialize logger
+    if let Err(e) = logging::init() {
+        eprintln!("Failed to initialize logger: {}", e);
+    }
+    
+    // Log application startup
+    info!("Starting mDesk application");
+    debug!("Debug logging enabled");
+    
     // Load environment variables
     load_env();
     
     // Launch the app
+    info!("Launching Dioxus app");
     dioxus::launch(App);
 }
 
@@ -291,13 +304,13 @@ fn McpDemo() -> Element {
                     Ok(configs) => configs,
                     Err(e) => {
                         // If there's an error (likely file not found), create default configs
-                        eprintln!("Error loading server configurations: {}", e);
+                        warn!("Error loading server configurations: {}", e);
                         server_config::ServerConfigs::initialize_default()
                     }
                 };
                 
                 // Log the number of servers to start
-                eprintln!("Starting {} MCP servers", configs.servers.len());
+                info!("Starting {} MCP servers", configs.servers.len());
                 
                 // Create a hashmap to store all active clients
                 let mut active_clients = HashMap::new();
@@ -314,7 +327,7 @@ fn McpDemo() -> Element {
                     server_status.insert(server_id.clone(), ServerStatus::Starting);
                     
                     // Log which server we're connecting to
-                    eprintln!("Connecting to MCP server: {}", server_config.name);
+                    info!("Connecting to MCP server: {}", server_config.name);
                     
                     // Create transport with the server's configuration
                     let env_vars = server_config.env.clone();
@@ -331,46 +344,48 @@ fn McpDemo() -> Element {
                             let mut client = McpClient::new(service);
                             
                             match client.initialize(
-                                ClientInfo {
-                                    name: "mDesk".to_string(),
-                                    version: "0.1.0".to_string(),
-                                },
-                                ClientCapabilities::default()
+                            ClientInfo {
+                            name: "mDesk".to_string(),
+                            version: "0.1.0".to_string(),
+                            },
+                            ClientCapabilities::default()
                             ).await {
-                                Ok(_) => {
-                                    // Successfully started the server
-                                    client_status.set(format!("Connected to {} (MCP v1.0)", server_config.name));
-                                    
-                                    // Store the client in our HashMap
-                                    let client_arc = Arc::new(Mutex::new(client));
-                                    active_clients.insert(server_id.clone(), client_arc.clone());
-                                    
-                                    // Update server status to Running
-                                    server_status.insert(server_id.clone(), ServerStatus::Running);
-                                    
-                                    // Remember default server
-                                    if server_config.is_default {
-                                        default_server = Some((server_config, client_arc));
-                                    }
+                            Ok(_) => {
+                            // Successfully started the server
+                            info!("Successfully connected to MCP server: {}", server_config.name);
+                            client_status.set(format!("Connected to {} (MCP v1.0)", server_config.name));
+                            
+                            // Store the client in our HashMap
+                            let client_arc = Arc::new(Mutex::new(client));
+                            active_clients.insert(server_id.clone(), client_arc.clone());
+                            
+                            // Update server status to Running
+                            server_status.insert(server_id.clone(), ServerStatus::Running);
+                            
+                            // Remember default server
+                            if server_config.is_default {
+                                debug!("Setting {} as default server", server_config.name);
+                                    default_server = Some((server_config, client_arc));
                                 }
-                                Err(e) => {
-                                    let error_msg = format!("Failed to initialize: {}", e);
-                                    eprintln!("Failed to initialize client for server {}: {}", server_config.name, e);
-                                    
-                                    // Update server status to Failed
-                                    server_status.insert(server_id, ServerStatus::Failed(error_msg));
-                                    
-                                    if configs.servers.len() == 1 {
-                                        // Only show error in UI if this is the only server
-                                        client_status.set("Error".to_string());
-                                        error_message.set(Some(format!("Failed to initialize client: {}", e)));
+                            }
+                            Err(e) => {
+                            let error_msg = format!("Failed to initialize: {}", e);
+                            error!("Failed to initialize client for server {}: {}", server_config.name, e);
+                            
+                            // Update server status to Failed
+                            server_status.insert(server_id, ServerStatus::Failed(error_msg));
+                            
+                            if configs.servers.len() == 1 {
+                            // Only show error in UI if this is the only server
+                                client_status.set("Error".to_string());
+                                    error_message.set(Some(format!("Failed to initialize client: {}", e)));
+                                        }
                                     }
-                                }
                             }
                         }
                         Err(e) => {
                             let error_msg = format!("Failed to start: {}", e);
-                            eprintln!("Failed to start transport for server {}: {}", server_config.name, e);
+                            error!("Failed to start transport for server {}: {}", server_config.name, e);
                             
                             // Update server status to Failed
                             server_status.insert(server_id, ServerStatus::Failed(error_msg));
