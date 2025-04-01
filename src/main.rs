@@ -46,11 +46,16 @@ const MDESK_CSS: Asset = asset!("/assets/mdesk.css");
 const LOGO: Asset = asset!("/assets/logo.png");
 
 fn main() {
+    eprintln!("Starting application...");
+    eprintln!("Current RUST_LOG setting: {}", std::env::var("RUST_LOG").unwrap_or_else(|_| "Not set".to_string()));
+    
     // Initialize logger
     if let Err(e) = logging::init() {
         // Since logger failed, use eprintln! as fallback
         // This is the only place where eprintln! is acceptable
         eprintln!("Failed to initialize logger: {}", e);
+    } else {
+        eprintln!("Logger initialized successfully");
     }
     
     // Log application startup

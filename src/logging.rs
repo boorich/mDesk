@@ -12,12 +12,34 @@ use tracing::{Level, instrument};
 pub fn init() -> Result<(), Box<dyn std::error::Error>> {
     // Create log directory if it doesn't exist
     let log_dir = get_log_directory();
-    std::fs::create_dir_all(&log_dir)?;
+    
+    // Print log directory to stderr so it's visible regardless of logging
+    eprintln!("Setting up logging in directory: {}", log_dir.display());
+    
+    // Ensure directory exists
+    match std::fs::create_dir_all(&log_dir) {
+        Ok(_) => eprintln!("Log directory created or already exists"),
+        Err(e) => eprintln!("Error creating log directory: {}", e),
+    }
+    
+    // Check if directory is writable
+    let test_file_path = log_dir.join("test_write.tmp");
+    match std::fs::File::create(&test_file_path) {
+        Ok(_) => {
+            eprintln!("Directory is writable");
+            // Clean up test file
+            let _ = std::fs::remove_file(&test_file_path);
+        },
+        Err(e) => {
+            eprintln!("Directory is not writable: {}", e);
+            // We'll continue anyway to see if the appender can handle it
+        }
+    }
     
     // Set up file appender with rotation
     let file_appender = RollingFileAppender::new(
         Rotation::DAILY,
-        log_dir,
+        log_dir.clone(),
         "mdesk.log",
     );
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
@@ -52,6 +74,7 @@ pub fn init() -> Result<(), Box<dyn std::error::Error>> {
         .init();
     
     tracing::info!("Logging initialized");
+    eprintln!("Log file should be available at: {}", log_dir.join("mdesk.log").display());
     Ok(())
 }
 
