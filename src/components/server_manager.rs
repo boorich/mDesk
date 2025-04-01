@@ -61,105 +61,145 @@ pub fn ServerManager(mut props: ServerManagerProps) -> Element {
     };
     
     // Function to toggle server state (start/stop)
-    let mut on_toggle_server = move |server_config: ServerConfig| {
-        use dioxus::prelude::spawn;
-        use crate::ServerStatus;
-        use crate::server_config;
-        use mcp_client::transport::stdio::StdioTransport;
-        use mcp_client::{ClientInfo, ClientCapabilities, McpClient, McpService};
-        use std::time::Duration;
+    #[derive(Clone)]
+    struct ToggleServer {
+        props: ServerManagerProps,
+    }
+    
+    impl ToggleServer {
+        fn new(props: ServerManagerProps) -> Self {
+            Self { props }
+        }
         
-        let server_id = server_config.id.clone();
-        
-        // Check current server status
-        let status = props.mcp_state.read().server_status.get(&server_id).cloned();
-        
-        match status {
-            Some(ServerStatus::Running) => {
-                // Stop the server
-                let client_opt = props.mcp_state.read().active_clients.get(&server_id).cloned();
-                if let Some(client) = client_opt {
-                    // Update status to show stopping
-                    props.mcp_state.write().server_status.insert(server_id.clone(), ServerStatus::Stopped);
-                    
-                    // Remove from active clients
-                    props.mcp_state.write().active_clients.remove(&server_id);
-                    
-                    // If it's the selected server, clear the client
-                    let selected_server = props.mcp_state.read().selected_server.clone();
-                    if let Some(selected) = selected_server {
-                        if selected.id == server_id {
-                            props.mcp_state.write().client = None;
-                            props.mcp_state.write().selected_server = None;
-                        }
-                    }
-                }
-            },
-            Some(ServerStatus::Stopped) | None => {
-                // Start the server
-                // Mark as starting
-                props.mcp_state.write().server_status.insert(server_id.clone(), ServerStatus::Starting);
-                
-                // Clone what we need for the spawn
-                let server_config_clone = server_config.clone();
-                let mut mcp_state_clone = props.mcp_state.clone();
-                
-                spawn({
-                    async move {
-                        let server_id = server_config_clone.id.clone();
+        fn call(&self, server_config: ServerConfig) {
+            use dioxus::prelude::spawn;
+            use crate::ServerStatus;
+            use crate::server_config;
+            use mcp_client::transport::stdio::StdioTransport;
+            use mcp_client::{ClientInfo, ClientCapabilities, McpClient, McpService};
+            use std::time::Duration;
+            
+            let server_id = server_config.id.clone();
+            let mut props = self.props.clone();
+            
+            // Check current server status
+            let status = props.mcp_state.read().server_status.get(&server_id).cloned();
+            
+            match status {
+                Some(ServerStatus::Running) => {
+                    // Stop the server
+                    let client_opt = props.mcp_state.read().active_clients.get(&server_id).cloned();
+                    if let Some(_client) = client_opt {
+                        // Update status to show stopping
+                        props.mcp_state.write().server_status.insert(server_id.clone(), ServerStatus::Stopped);
                         
-                        // Create transport with the server's configuration
-                        let env_vars = server_config_clone.env.clone();
+                        // Remove from active clients
+                        props.mcp_state.write().active_clients.remove(&server_id);
                         
-                        let transport = StdioTransport::new(
-                            &server_config_clone.command,
-                            server_config_clone.args.clone(),
-                            env_vars
-                        );
-                        
-                        match transport.start().await {
-                            Ok(handle) => {
-                                let service = McpService::with_timeout(handle, Duration::from_secs(30));
-                                let mut client = McpClient::new(service);
-                                
-                                match client.initialize(
-                                    ClientInfo {
-                                        name: "mDesk".to_string(),
-                                        version: "0.1.0".to_string(),
-                                    },
-                                    ClientCapabilities::default()
-                                ).await {
-                                    Ok(_) => {
-                                        // Successfully started the server
-                                        let client_arc = Arc::new(Mutex::new(client));
-                                        
-                                        // Store in active clients
-                                        mcp_state_clone.write().active_clients.insert(server_id.clone(), client_arc.clone());
-                                        
-                                        // Update status to Running
-                                        mcp_state_clone.write().server_status.insert(server_id, ServerStatus::Running);
-                                    },
-                                    Err(e) => {
-                                        // Failed to initialize
-                                        let error_msg = format!("Failed to initialize: {}", e);
-                                        mcp_state_clone.write().server_status.insert(server_id, ServerStatus::Failed(error_msg));
-                                    }
-                                }
-                            },
-                            Err(e) => {
-                                // Failed to start transport
-                                let error_msg = format!("Failed to start: {}", e);
-                                mcp_state_clone.write().server_status.insert(server_id, ServerStatus::Failed(error_msg));
+                        // If it's the selected server, clear the client
+                        let selected_server = props.mcp_state.read().selected_server.clone();
+                        if let Some(selected) = selected_server {
+                            if selected.id == server_id {
+                                props.mcp_state.write().client = None;
+                                props.mcp_state.write().selected_server = None;
                             }
                         }
+                        
+                        // Trigger a tools refresh to remove tools from this server
+                        // We don't have direct access to the tools signal here, so we'll let
+                        // the health check coroutine handle the tool update on its next run
+                        // We just need to make sure the status is updated correctly
+                        spawn({
+                            to_owned![props];
+                            async move {
+                                // Manually call a client health check for remaining servers
+                                let active_clients = props.mcp_state.read().active_clients.clone();
+                                for (id, client) in active_clients {
+                                    if let Ok(client_lock) = client.try_lock() {
+                                        if let Ok(Ok(_)) = tokio::time::timeout(
+                                            std::time::Duration::from_millis(500),
+                                            client_lock.list_resources(None)
+                                        ).await {
+                                            // Server is still running
+                                            props.mcp_state.write().server_status.insert(
+                                                id.clone(), 
+                                                crate::ServerStatus::Running
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        });
                     }
-                });
-            },
-            _ => {
-                // Do nothing for Failed or Starting states
+                },
+                Some(ServerStatus::Stopped) | None => {
+                    // Start the server
+                    // Mark as starting
+                    props.mcp_state.write().server_status.insert(server_id.clone(), ServerStatus::Starting);
+                    
+                    // Clone what we need for the spawn
+                    let server_config_clone = server_config.clone();
+                    let mut mcp_state_clone = props.mcp_state.clone();
+                    
+                    spawn({
+                        async move {
+                            let server_id = server_config_clone.id.clone();
+                            
+                            // Create transport with the server's configuration
+                            let env_vars = server_config_clone.env.clone();
+                            
+                            let transport = StdioTransport::new(
+                                &server_config_clone.command,
+                                server_config_clone.args.clone(),
+                                env_vars
+                            );
+                            
+                            match transport.start().await {
+                                Ok(handle) => {
+                                    let service = McpService::with_timeout(handle, Duration::from_secs(30));
+                                    let mut client = McpClient::new(service);
+                                    
+                                    match client.initialize(
+                                        ClientInfo {
+                                            name: "mDesk".to_string(),
+                                            version: "0.1.0".to_string(),
+                                        },
+                                        ClientCapabilities::default()
+                                    ).await {
+                                        Ok(_) => {
+                                            // Successfully started the server
+                                            let client_arc = Arc::new(Mutex::new(client));
+                                            
+                                            // Store in active clients
+                                            mcp_state_clone.write().active_clients.insert(server_id.clone(), client_arc.clone());
+                                            
+                                            // Update status to Running
+                                            mcp_state_clone.write().server_status.insert(server_id, ServerStatus::Running);
+                                        },
+                                        Err(e) => {
+                                            // Failed to initialize
+                                            let error_msg = format!("Failed to initialize: {}", e);
+                                            mcp_state_clone.write().server_status.insert(server_id, ServerStatus::Failed(error_msg));
+                                        }
+                                    }
+                                },
+                                Err(e) => {
+                                    // Failed to start transport
+                                    let error_msg = format!("Failed to start: {}", e);
+                                    mcp_state_clone.write().server_status.insert(server_id, ServerStatus::Failed(error_msg));
+                                }
+                            }
+                        }
+                    });
+                },
+                _ => {
+                    // Do nothing for Failed or Starting states
+                }
             }
         }
-    };
+    }
+    
+    let on_toggle_server = ToggleServer::new(props.clone());
     
     // Function to add a new server configuration
     let mut add_server = move |_| {
@@ -267,9 +307,11 @@ pub fn ServerManager(mut props: ServerManagerProps) -> Element {
                 div { class: "server-list",
                     {
                         // Create a vector of RSX nodes, one for each server
-                        configs.read().servers.iter().map(|server| {
+                        let props_clone = props.clone();
+                        let on_toggle_server_clone = on_toggle_server.clone();
+                        configs.read().servers.iter().map(move |server| {
                             let server_id = server.id.clone();
-                            let is_selected = props.selected_id.as_ref().map_or(false, |id| id == &server_id);
+                            let is_selected = props_clone.selected_id.as_ref().map_or(false, |id| id == &server_id);
                             let server_name = server.name.clone();
                             let server_desc = server.description.clone();
                             let is_default = server.is_default;
@@ -278,6 +320,8 @@ pub fn ServerManager(mut props: ServerManagerProps) -> Element {
                             let select_id = server_id.clone();
                             let edit_id = server_id.clone();
                             let delete_id = server_id.clone();
+                            let toggle_handler = on_toggle_server_clone.clone();
+                            let local_props = props_clone.clone();
                             
                             rsx! {
                                 div {
@@ -336,7 +380,7 @@ pub fn ServerManager(mut props: ServerManagerProps) -> Element {
                                             // Add server status indicator
                                             {
                                                 let server_id_for_status = server_id.clone();
-                                                let status = props.mcp_state.read().server_status.get(&server_id_for_status).cloned();
+                                                let status = local_props.mcp_state.read().server_status.get(&server_id_for_status).cloned();
                                                 
                                                 let status_class = match status {
                                                     Some(crate::ServerStatus::Running) => "server-status running",
@@ -379,7 +423,7 @@ pub fn ServerManager(mut props: ServerManagerProps) -> Element {
                                         // Get server status to show appropriate button
                                         {
                                             let server_id_for_status = server_id.clone();
-                                            let status = props.mcp_state.read().server_status.get(&server_id_for_status).cloned();
+                                            let status = local_props.mcp_state.read().server_status.get(&server_id_for_status).cloned();
                                             let server_config_for_toggle = configs.read().get_by_id(&server_id_for_status).cloned();
                                             
                                             if let Some(server_config) = server_config_for_toggle {
@@ -412,6 +456,10 @@ pub fn ServerManager(mut props: ServerManagerProps) -> Element {
                                                 }
                                                 
                                                 let server_for_toggle = server_config.clone();
+                                                let select_handler = select_server.clone();
+                                                let select_server_id = select_id.clone();
+                                                let toggle_arc = toggle_handler.clone();
+                                                let status_for_check = status.clone();
                                                 
                                                 rsx! {
                                                     button {
@@ -419,10 +467,10 @@ pub fn ServerManager(mut props: ServerManagerProps) -> Element {
                                                         disabled: is_disabled,
                                                         onclick: move |_| {
                                                             // If server is running, also select it when clicked
-                                                            if matches!(status, Some(crate::ServerStatus::Running)) {
-                                                                select_server(select_id.clone());
+                                                            if matches!(status_for_check, Some(crate::ServerStatus::Running)) {
+                                                                select_handler(select_server_id.clone());
                                                             }
-                                                            on_toggle_server(server_for_toggle.clone())
+                                                            toggle_arc.call(server_for_toggle.clone())
                                                         },
                                                         "{button_text}"
                                                     }

@@ -23,6 +23,22 @@ use components::ChatTab;
 use components::server_manager::ServerManager;
 use server_config::ServerConfig;
 
+/// Updates the global tools list based on the server_tools mapping
+fn update_global_tools(server_tools: &HashMap<String, Vec<Tool>>, tools: &mut Signal<Vec<Tool>>) {
+    let mut all_tools = Vec::new();
+    
+    // Add tools from all active servers
+    for (_server_id, server_tools) in server_tools {
+        all_tools.extend(server_tools.clone());
+    }
+    
+    // Only update if tools have changed - need to do a deep comparison here in real-world code
+    if tools.read().len() != all_tools.len() {
+        debug!("Updating global tools list, now {} tools", all_tools.len());
+        tools.set(all_tools);
+    }
+}
+
 // Load environment variables from .env file if it exists
 #[instrument(level = "info")]
 fn load_env() {
@@ -204,6 +220,7 @@ fn McpDemo() -> Element {
     let mut show_tools = use_signal(|| false);
     let mut resources = use_signal(Vec::<McpResource>::new);
     let mut tools = use_signal(Vec::<Tool>::new);
+    let mut server_tools = use_signal(|| HashMap::<String, Vec<Tool>>::new());
     let mut active_section = use_signal(|| "chat");
     let mut active_tool_modal = use_signal(|| None::<Tool>);
     
@@ -275,6 +292,90 @@ fn McpDemo() -> Element {
             
             // Return unit type as expected
             ()
+        }
+    });
+    
+    // Server health check coroutine
+    use_coroutine({
+        to_owned![mcp_state, server_tools, tools];
+        move |_rx: dioxus::prelude::UnboundedReceiver<()>| async move {
+            loop {
+                // Check each server's health every 5 seconds
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                
+                // Get a snapshot of current servers
+                let active_clients = mcp_state.read().active_clients.clone();
+                let mut running_server_ids = Vec::new();
+                
+                // Check each server's responsiveness
+                for (server_id, client) in &active_clients {
+                    if let Ok(client_lock) = client.try_lock() {
+                        // Try to ping the server with a timeout
+                        match tokio::time::timeout(
+                            std::time::Duration::from_millis(500),
+                            client_lock.list_resources(None)
+                        ).await {
+                            Ok(Ok(_)) => {
+                                // Server is responsive
+                                running_server_ids.push(server_id.clone());
+                                
+                                // Update status to Running if it's not already
+                                let should_update = if let Some(status) = mcp_state.read().server_status.get(server_id) {
+                                    !matches!(status, ServerStatus::Running)
+                                } else {
+                                    true
+                                };
+                                
+                                if should_update {
+                                    mcp_state.write().server_status.insert(
+                                        server_id.clone(), 
+                                        ServerStatus::Running
+                                    );
+                                }
+                            },
+                            _ => {
+                                // Server is not responsive
+                                info!("Server {} is not responsive, marking as failed", server_id);
+                                mcp_state.write().server_status.insert(
+                                    server_id.clone(), 
+                                    ServerStatus::Failed("Connection lost".to_string())
+                                );
+                            }
+                        }
+                    } else {
+                        // Client is busy - assume it's still working for now
+                        running_server_ids.push(server_id.clone());
+                    }
+                }
+                
+                // If the running server list changed, update the tools
+                let previous_running_count = mcp_state.read().server_status.values()
+                    .filter(|s| matches!(s, ServerStatus::Running))
+                    .count();
+                
+                if previous_running_count != running_server_ids.len() {
+                    info!("Server status changed, refreshing tools list");
+                    // Update server_tools by keeping only running servers
+                    let mut current_server_tools = server_tools.read().clone();
+                    
+                    // Remove tools from servers that are no longer running
+                    let server_ids_to_remove: Vec<String> = current_server_tools.keys()
+                        .filter(|id| !running_server_ids.contains(id))
+                        .cloned()
+                        .collect();
+                    
+                    for id in server_ids_to_remove {
+                        info!("Removing tools from disconnected server: {}", id);
+                        current_server_tools.remove(&id);
+                    }
+                    
+                    // Update the server_tools signal
+                    server_tools.set(current_server_tools.clone());
+                    
+                    // Update the global tools list
+                    update_global_tools(&current_server_tools, &mut tools);
+                }
+            }
         }
     });
     
@@ -1646,8 +1747,8 @@ fn McpDemo() -> Element {
                                 }
                                 
                                 info!("Initiating tool fetch from all servers in main");
-                                let mut all_tools = Vec::new();
                                 let active_clients = mcp_state.read().active_clients.clone();
+                                let mut server_tool_map = HashMap::new();
                                 
                                 // Create a oneshot channel to get the result back
                                 let (tx, mut rx) = tokio::sync::oneshot::channel();
@@ -1656,28 +1757,33 @@ fn McpDemo() -> Element {
                                 spawn({
                                     to_owned![active_clients];
                                     async move {
-                                        for (_server_id, client_arc) in active_clients {
+                                        for (server_id, client_arc) in active_clients {
                                             let client = client_arc.lock().await;
                                             match client.list_tools(None).await {
                                                 Ok(result) => {
-                                                    all_tools.extend(result.tools);
+                                                    info!("Loaded {} tools from server {}", result.tools.len(), server_id);
+                                                    server_tool_map.insert(server_id.clone(), result.tools);
                                                 },
                                                 Err(e) => {
-                                                    error!("Error fetching tools: {}", e);
+                                                    error!("Error fetching tools from {}: {}", server_id, e);
                                                 }
                                             }
                                         }
-                                        let _ = tx.send(all_tools);
+                                        let _ = tx.send(server_tool_map);
                                     }
                                 });
                                 
                                 // Wait a short time for tools to load
-                                std::thread::sleep(std::time::Duration::from_millis(100));
+                                std::thread::sleep(std::time::Duration::from_millis(500));
                                 
                                 // Try to receive the tools
                                 match rx.try_recv() {
-                                    Ok(received_tools) => {
-                                        tools.set(received_tools);
+                                    Ok(received_server_tools) => {
+                                        // Update server_tools signal with the received mapping
+                                        server_tools.set(received_server_tools);
+                                        
+                                        // Update the global tools list based on server_tools
+                                        update_global_tools(&server_tools.read(), &mut tools);
                                     },
                                     Err(_) => {
                                         error!("Failed to receive tools in time");
