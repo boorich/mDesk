@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use tracing::{info, debug, warn, error};
+use tracing::{info, debug, warn, error, trace};
 
 use mcp_client::{
     ClientCapabilities, ClientInfo, Error as McpError, McpClient, McpClientTrait, McpService,
@@ -47,12 +47,22 @@ const LOGO: Asset = asset!("/assets/logo.png");
 fn main() {
     // Initialize logger
     if let Err(e) = logging::init() {
+        // Since logger failed, use eprintln! as fallback
+        // This is the only place where eprintln! is acceptable
         eprintln!("Failed to initialize logger: {}", e);
     }
     
     // Log application startup
     info!("Starting mDesk application");
     debug!("Debug logging enabled");
+    trace!("Trace logging active");
+    
+    // Log an example of each level - this helps test the configuration
+    trace!("Example TRACE log message");
+    debug!("Example DEBUG log message");
+    info!("Example INFO log message");
+    warn!("Example WARNING log message");
+    error!("Example ERROR log message");
     
     // Load environment variables
     load_env();
@@ -233,7 +243,7 @@ fn McpDemo() -> Element {
                                 openrouter_credit.set(Some(balance));
                             }
                             Err(e) => {
-                                eprintln!("Error fetching OpenRouter credit balance: {}", e);
+                                error!("Error fetching OpenRouter credit balance: {}", e);
                                 openrouter_credit.set(None);
                             }
                         }
@@ -1410,7 +1420,7 @@ fn McpDemo() -> Element {
                                                         map.insert(server_id.clone(), result.tools);
                                                     }
                                                     Err(e) => {
-                                                        eprintln!("Failed to load tools for server {}: {}", server_id, e);
+                                                        error!("Failed to load tools for server {}: {}", server_id, e);
                                                     }
                                                 }
                                             }
@@ -1590,7 +1600,7 @@ fn McpDemo() -> Element {
                     {
                         // Ensure we fetch tools before rendering the chat tab if needed
                         if tools.read().is_empty() && !mcp_state.read().active_clients.is_empty() {
-                            eprintln!("Tools not loaded yet, fetching them for chat");
+                        warn!("Tools not loaded yet, fetching them for chat");
                             
                             // Create a function to fetch tools from all servers
                             let mut fetch_all_servers_tools = || {
@@ -1625,11 +1635,11 @@ fn McpDemo() -> Element {
                                 
                                 // Skip if we recently fetched tools and already have some
                                 if !should_fetch {
-                                    eprintln!("Skipping tool fetch in main - last fetch was too recent");
+                                    debug!("Skipping tool fetch in main - last fetch was too recent");
                                     return;
                                 }
                                 
-                                eprintln!("Initiating tool fetch from all servers in main");
+                                info!("Initiating tool fetch from all servers in main");
                                 let mut all_tools = Vec::new();
                                 let active_clients = mcp_state.read().active_clients.clone();
                                 
@@ -1647,7 +1657,7 @@ fn McpDemo() -> Element {
                                                     all_tools.extend(result.tools);
                                                 },
                                                 Err(e) => {
-                                                    eprintln!("Error fetching tools: {}", e);
+                                                    error!("Error fetching tools: {}", e);
                                                 }
                                             }
                                         }
@@ -1664,7 +1674,7 @@ fn McpDemo() -> Element {
                                         tools.set(received_tools);
                                     },
                                     Err(_) => {
-                                        eprintln!("Failed to receive tools in time");
+                                        error!("Failed to receive tools in time");
                                     }
                                 }
                             };
@@ -1674,9 +1684,9 @@ fn McpDemo() -> Element {
                         }
                         
                         // Debug logs
-                        eprintln!("Sending {} tools to ChatTab", tools.read().len());
+                        debug!("Sending {} tools to ChatTab", tools.read().len());
                         for tool in tools.read().iter() {
-                            eprintln!("  - Sending Tool to ChatTab: {} ({})", tool.name, tool.description);
+                            trace!("  - Sending Tool to ChatTab: {} ({})", tool.name, tool.description);
                         }
                         
                         // Render ChatTab component

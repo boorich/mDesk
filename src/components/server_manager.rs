@@ -3,6 +3,7 @@ use crate::server_config::{ServerConfig, ServerConfigs};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tracing::{debug, info, warn, error};
 use mcp_client::{transport::{StdioTransport, Error as TransportError}, 
     ClientInfo, ClientCapabilities, McpClient, McpService, Transport, McpClientTrait
 };
@@ -33,11 +34,11 @@ pub fn ServerManager(mut props: ServerManagerProps) -> Element {
         
         match ServerConfigs::load_from_file(config_path) {
             Ok(loaded_configs) => {
-                eprintln!("Loaded {} server configurations", loaded_configs.servers.len());
+                info!("Loaded {} server configurations", loaded_configs.servers.len());
                 configs.set(loaded_configs);
             }
             Err(e) => {
-                eprintln!("Error loading server configurations: {}", e);
+                warn!("Error loading server configurations: {}", e);
                 error_message.set(Some(format!("Error loading configurations: {}", e)));
                 
                 // If the file doesn't exist or has errors, create a default configuration
@@ -46,7 +47,7 @@ pub fn ServerManager(mut props: ServerManagerProps) -> Element {
                 
                 // Try to save the default configuration
                 if let Err(save_err) = default_configs.save_to_file(config_path) {
-                    eprintln!("Error saving default configurations: {}", save_err);
+                    error!("Error saving default configurations: {}", save_err);
                 }
             }
         }

@@ -57,9 +57,9 @@ pub fn ChatTab(
         let mut all_tools = mcp_tools.clone();
         
         // Log the available tools for debugging
-        eprintln!("Available tools for ChatTab component: {}", all_tools.len());
+        debug!("Available tools for ChatTab component: {}", all_tools.len());
         for tool in &all_tools {
-            eprintln!("  - Tool: {} ({})", tool.name, tool.description);
+            debug!("  - Tool: {} ({})", tool.name, tool.description);
         }
         
         all_tools
@@ -93,11 +93,11 @@ pub fn ChatTab(
             
             // Skip if we recently fetched tools
             if !should_fetch && !tools.read().is_empty() {
-                eprintln!("Skipping tool fetch - last fetch was too recent");
+                debug!("Skipping tool fetch - last fetch was too recent");
                 return;
             }
             
-            eprintln!("Initiating tool fetch from all servers");
+            info!("Initiating tool fetch from all servers");
             spawn({
                 to_owned![tools, mcp_state];
                 async move {
@@ -119,20 +119,20 @@ pub fn ChatTab(
                         // Try to fetch tools
                         match client.list_tools(None).await {
                             Ok(result) => {
-                                eprintln!("Fetched {} tools from server {}", result.tools.len(), server_id);
+                                info!("Fetched {} tools from server {}", result.tools.len(), server_id);
                                 
                                 // Add these tools to our collection
                                 all_tools.extend(result.tools);
                             }
                             Err(e) => {
-                                eprintln!("Error fetching tools from server {}: {}", server_id, e);
+                                error!("Error fetching tools from server {}: {}", server_id, e);
                             }
                         }
                     }
                     
                     // Now update the tools signal with all tools from all servers
                     if !all_tools.is_empty() {
-                        eprintln!("Updating tools with {} total tools from all servers", all_tools.len());
+                        info!("Updating tools with {} total tools from all servers", all_tools.len());
                         tools.set(all_tools);
                     }
                 }
@@ -194,7 +194,7 @@ pub fn ChatTab(
             .with_cache(cache.read().clone())
             .with_max_prompt_tools(25); // Limit to 25 tools per prompt
             
-        eprintln!("Created LLMToolSelector with model: {}", model);
+        debug!("Created LLMToolSelector with model: {}", model);
         selector
     });
     
@@ -210,7 +210,7 @@ pub fn ChatTab(
     };
     
     if should_log {
-        eprintln!("ChatTab received MCP client state: {}", if mcp_state.read().client.is_some() { "Client available" } else { "No client available" });
+        debug!("ChatTab received MCP client state: {}", if mcp_state.read().client.is_some() { "Client available" } else { "No client available" });
     }
     
     // Only preload tools if we don't have any and fetch_all_servers_tools hasn't been called yet
@@ -225,7 +225,7 @@ pub fn ChatTab(
     };
     
     if should_preload {
-        eprintln!("Preloading tools during ChatTab initialization");
+        info!("Preloading tools during ChatTab initialization");
         let tools_clone = tools.clone();
         let mcp_clone = mcp_state.clone();
         
@@ -236,11 +236,11 @@ pub fn ChatTab(
                     let client = client_arc.lock().await;
                     match client.list_tools(None).await {
                         Ok(result) => {
-                            eprintln!("Successfully preloaded {} tools during initialization", result.tools.len());
+                            info!("Successfully preloaded {} tools during initialization", result.tools.len());
                             tools_clone.set(result.tools);
                         }
                         Err(e) => {
-                            eprintln!("Error preloading tools: {}", e);
+                            error!("Error preloading tools: {}", e);
                         }
                     }
                 }
@@ -341,7 +341,7 @@ pub fn ChatTab(
                 
                 // If after 5 seconds we still have no models and there was an error, use fallback
                 if model_selection.read().models.is_empty() && model_selection.read().error.is_some() {
-                    eprintln!("Using fallback models list due to API error");
+                    warn!("Using fallback models list due to API error");
                     model_selection.write().models = fallback_models();
                     model_selection.write().loading = false;
                     // Keep the error message for debugging purposes
@@ -391,7 +391,7 @@ pub fn ChatTab(
     // Function to fetch MCP tools synchronously
     let fetch_tools_sync = move || {
         if mcp_state.read().client.is_some() {
-            eprintln!("Fetching MCP tools synchronously for ChatTab");
+            debug!("Fetching MCP tools synchronously for ChatTab");
             
             // We need to run this in a blocking context
             let mut tools_clone = tools.clone();
@@ -405,12 +405,12 @@ pub fn ChatTab(
                     let client = client_arc.lock().await;
                     match client.list_tools(None).await {
                         Ok(result) => {
-                            eprintln!("Successfully fetched {} tools", result.tools.len());
+                            info!("Successfully fetched {} tools", result.tools.len());
                             tools_clone.set(result.tools.clone());
                             let _ = tx.send(result.tools);
                         }
                         Err(e) => {
-                            eprintln!("Error fetching tools: {}", e);
+                            error!("Error fetching tools: {}", e);
                             let _ = tx.send(Vec::new());
                         }
                     }
@@ -459,14 +459,14 @@ pub fn ChatTab(
         
         // Check if we have tools available, if not try to fetch them
         let tools_clone = if tools.read().is_empty() && mcp_state.read().client.is_some() {
-            eprintln!("No tools available, fetching them before processing message");
+            warn!("No tools available, fetching them before processing message");
             fetch_tools_sync() // This will ensure we have tools before proceeding
         } else {
             tools.read().clone()
         };
         
         // Log the tools we have
-        eprintln!("Processing message with {} tools available", tools_clone.len());
+        debug!("Processing message with {} tools available", tools_clone.len());
         
         // Get the current confidence threshold
         let conf_threshold = *confidence_threshold.read();
@@ -483,7 +483,7 @@ pub fn ChatTab(
                 if let Some((cached_tool_name, cached_confidence, cached_args)) = cached_tool_suggestion {
                     // Only use cached suggestion if confidence meets threshold
                     if cached_confidence >= conf_threshold {
-                        eprintln!("Using cached tool suggestion: {} with confidence {}", cached_tool_name, cached_confidence);
+                        info!("Using cached tool suggestion: {} with confidence {}", cached_tool_name, cached_confidence);
                         
                         // Check if this tool exists
                         if let Some(tool) = tools_clone.iter().find(|t| t.name == cached_tool_name) {
@@ -609,7 +609,7 @@ pub fn ChatTab(
                                 },
                                 ValidationState::Invalid { errors, alternative_tools, .. } => {
                                     // Cached arguments are invalid, better use LLM to create new parameters
-                                    eprintln!("Cached tool parameters are invalid: {}", errors.join(", "));
+                                    warn!("Cached tool parameters are invalid: {}", errors.join(", "));
                                     // Fall through to normal flow to let LLM handle it
                                     
                                     // If we have alternative tools, add a system message about them
@@ -620,13 +620,13 @@ pub fn ChatTab(
                                                 alt_message.push_str(&format!("- {} ({})\n", tool.name, tool.description));
                                             }
                                         }
-                                        eprintln!("{}", alt_message);
+                                        debug!("{}", alt_message);
                                     }
                                 }
                             }
                         }
                     } else {
-                        eprintln!("Cached tool suggestion doesn't meet confidence threshold: {} < {}", 
+                        debug!("Cached tool suggestion doesn't meet confidence threshold: {} < {}", 
                             cached_confidence, conf_threshold);
                     }
                 }
@@ -634,7 +634,7 @@ pub fn ChatTab(
                 // Log cache statistics for debugging
                 let stats = cache_ref.stats();
                 if let Ok(stats_json) = serde_json::to_string(&stats) {
-                    eprintln!("Tool selection cache stats: {}", stats_json);
+                    debug!("Tool selection cache stats: {}", stats_json);
                 }
                 
                 // If no cached suggestion or it didn't meet the threshold, continue with normal flow
@@ -858,12 +858,12 @@ pub fn ChatTab(
                             
                             // Original tool suggestion detection (fallback approach)
                             // Check if the message contains a tool suggestion
-                            eprintln!("Checking message for tool suggestions using legacy detection...");
+                            debug!("Checking message for tool suggestions using legacy detection...");
                             
                             if let Some((tool_name, suggested_args)) = 
                                 ToolManager::detect_tool_suggestion(&message_content, &tools_clone) {
                                 
-                                eprintln!("Found tool suggestion for '{}' in message!", tool_name);
+                                info!("Found tool suggestion for '{}' in message!", tool_name);
                                 
                                 // Check if this tool exists in MCP
                                 let tool_exists = tools_clone.iter().any(|t| t.name == tool_name);
@@ -876,7 +876,7 @@ pub fn ChatTab(
                                         message_idx: message_id,
                                     };
                                     
-                                    eprintln!("Adding message with tool suggestion for '{}'", tool_name);
+                                    debug!("Adding message with tool suggestion for '{}'", tool_name);
                                     
                                     messages.write().push(
                                         Message::new(
@@ -891,7 +891,7 @@ pub fn ChatTab(
                                     cache_ref.add(&user_input, &tool_name, 0.9, &suggested_args);
                                 } else {
                                     // Tool doesn't exist in MCP - add the message with an explanation
-                                    eprintln!("Tool '{}' suggested but not available in MCP", tool_name);
+                                    warn!("Tool '{}' suggested but not available in MCP", tool_name);
                                     
                                     // Add the AI's message first
                                     messages.write().push(Message::new(
@@ -906,7 +906,7 @@ pub fn ChatTab(
                                     ));
                                 }
                             } else {
-                                eprintln!("No tool suggestion detected in message");
+                                debug!("No tool suggestion detected in message");
                                 
                                 // Regular message, no tool suggestion
                                 messages.write().push(Message::new(
@@ -917,6 +917,9 @@ pub fn ChatTab(
                         }
                     }
                     Err(e) => {
+                        // Log the error
+                        error!("Error calling OpenRouter API: {}", e);
+                        
                         // Replace thinking message with error
                         if thinking_id < messages.read().len() {
                             messages.write()[thinking_id] = Message::new(
@@ -1321,7 +1324,7 @@ pub fn ChatTab(
                             .with_cache(cache.read().clone())
                             .with_max_prompt_tools(25); // Limit to 25 tools per prompt
                             
-                        eprintln!("Updated LLMToolSelector to use model: {}", new_model);
+                        debug!("Updated LLMToolSelector to use model: {}", new_model);
                         tool_selector.set(new_selector);
                     },
                     if model_selection.read().models.is_empty() {

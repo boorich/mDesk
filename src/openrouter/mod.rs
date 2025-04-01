@@ -3,6 +3,7 @@ use reqwest::Client;
 use std::{sync::Arc, time::{Duration, Instant}};
 use tokio::sync::Mutex;
 use mcp_core::Tool;
+use tracing::{debug, info, warn, error};
 
 #[derive(Debug, Clone)]
 pub struct OpenRouterClient {
@@ -290,7 +291,7 @@ impl OpenRouterClient {
             Ok(models) => Ok(models.data),
             Err(e) => {
                 // Log the error with more context
-                eprintln!("JSON deserialization error: {} in response: {}", e, body_text);
+                error!("JSON deserialization error: {} in response: {}", e, body_text);
                 
                 // Try to extract just the model IDs and names as a fallback
                 let fallback_result = serde_json::from_str::<serde_json::Value>(&body_text);
@@ -311,7 +312,7 @@ impl OpenRouterClient {
                             .collect::<Vec<_>>();
                         
                         if !fallback_models.is_empty() {
-                            eprintln!("Using fallback model parsing, recovered {} models", fallback_models.len());
+                            warn!("Using fallback model parsing, recovered {} models", fallback_models.len());
                             return Ok(fallback_models);
                         }
                     }

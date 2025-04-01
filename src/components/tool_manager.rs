@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use regex::Regex;
+use tracing::{debug, info, warn, error, trace};
 use crate::components::tool_suggestion::{ToolSuggestionProps, ToolExecutionProps, ToolExecutionStatus};
 use crate::McpState;
 
@@ -33,46 +34,46 @@ pub struct ToolManager;
 impl ToolManager {
     /// Detect potential tool operations in a message
     pub fn detect_tool_suggestion(message: &str, available_tools: &[Tool]) -> Option<(String, Value)> {
-        eprintln!("Checking for tool suggestions in message: {}", message);
+        debug!("Checking for tool suggestions in message: {}", message);
         
         // Look for tool suggestions in the message
         // Log available tools with full details
-        eprintln!("Available tools count: {}", available_tools.len());
+        debug!("Available tools count: {}", available_tools.len());
         for tool in available_tools {
-            eprintln!("  Tool in detect_tool_suggestion: {} ({})", tool.name, tool.description);
+            trace!("  Tool in detect_tool_suggestion: {} ({})", tool.name, tool.description);
         }
         
         // Extract potential tool names directly - much more flexible approach
         let available_tool_names: Vec<&str> = available_tools.iter().map(|t| t.name.as_str()).collect();
-        eprintln!("Available tool names: {:?}", available_tool_names);
+        trace!("Available tool names: {:?}", available_tool_names);
         
         // NEW APPROACH: Look for ANY tool mention with a more generic regex
         let generic_tool_regex = Regex::new(r"([a-zA-Z0-9_]+)\s+tool").ok()?;
         
-        eprintln!("Looking for ANY tool mention with generic pattern");
+        debug!("Looking for ANY tool mention with generic pattern");
         
         for cap in generic_tool_regex.captures_iter(message) {
             let potential_tool = cap[1].to_string();
-            eprintln!("Found potential tool mention: {}", potential_tool);
+            debug!("Found potential tool mention: {}", potential_tool);
             
             // If available_tools is empty, we'll consider ANY tool valid for testing
             if available_tools.is_empty() || available_tool_names.contains(&potential_tool.as_str()) {
-                eprintln!("Accepting potential tool: {}", potential_tool);
+                info!("Accepting potential tool: {}", potential_tool);
                 
                 // Check if there are parameters mentioned
                 let args_regex = Regex::new(r"\{[\s\S]*?\}").ok()?;
                 if let Some(args_match) = args_regex.find(message) {
                     let args_str = args_match.as_str();
-                    eprintln!("Found JSON parameters for {}: {}", potential_tool, args_str);
+                    debug!("Found JSON parameters for {}: {}", potential_tool, args_str);
                     
                     match serde_json::from_str::<Value>(args_str) {
                         Ok(args) => return Some((potential_tool, args)),
-                        Err(e) => eprintln!("Failed to parse JSON: {}", e)
+                        Err(e) => warn!("Failed to parse JSON: {}", e)
                     }
                 }
                 
                 // Return with empty parameters
-                eprintln!("No parameters for {} tool, using empty object", potential_tool);
+                debug!("No parameters for {} tool, using empty object", potential_tool);
                 return Some((potential_tool, json!({})));
             }
         }
@@ -80,22 +81,22 @@ impl ToolManager {
         // Also try the original exact pattern approach
         let tool_regex = Regex::new(r"I need to use the (?P<tool_name>[a-zA-Z0-9_]+) tool").ok()?;
         if let Some(captures) = tool_regex.captures(message) {
-            eprintln!("Regex matched! Extracting tool name");
+            debug!("Regex matched! Extracting tool name");
             let tool_name_opt = captures.name("tool_name");
             
             if let Some(tool_name_match) = tool_name_opt {
                 let tool_name = tool_name_match.as_str().to_string();
-                eprintln!("Extracted tool name: {}", tool_name);
+                debug!("Extracted tool name: {}", tool_name);
                 
                 // Verify the tool exists
                 if !available_tools.iter().any(|t| t.name == tool_name) {
-                    eprintln!("Tool '{}' not found in available tools", tool_name);
+                    warn!("Tool '{}' not found in available tools", tool_name);
                     return None;
                 }
                 
-                eprintln!("Tool '{}' is valid", tool_name);
+                debug!("Tool '{}' is valid", tool_name);
             } else {
-                eprintln!("Failed to extract tool name from regex match");
+                warn!("Failed to extract tool name from regex match");
                 return None;
             }
             
@@ -104,28 +105,28 @@ impl ToolManager {
             
             // Look for JSON arguments
             let args_regex = Regex::new(r"\{[\s\S]*?\}").ok()?;
-            eprintln!("Looking for JSON arguments");
+            debug!("Looking for JSON arguments");
             
             if let Some(args_match) = args_regex.find(message) {
                 let args_str = args_match.as_str();
-                eprintln!("Found potential JSON arguments: {}", args_str);
+                debug!("Found potential JSON arguments: {}", args_str);
                 
                 // Try to parse as JSON
                 match serde_json::from_str::<Value>(args_str) {
                     Ok(args) => {
-                        eprintln!("Successfully parsed JSON arguments");
+                        info!("Successfully parsed JSON arguments");
                         return Some((tool_name, args));
                     },
                     Err(e) => {
-                        eprintln!("Failed to parse JSON arguments: {}", e);
+                        warn!("Failed to parse JSON arguments: {}", e);
                     }
                 }
             } else {
-                eprintln!("No JSON arguments found in message");
+                debug!("No JSON arguments found in message");
             }
             
             // If no valid JSON arguments found, return empty object
-            eprintln!("Using empty JSON object as arguments");
+            debug!("Using empty JSON object as arguments");
             return Some((tool_name, json!({})));
         }
         
@@ -138,25 +139,25 @@ impl ToolManager {
         arguments: Value,
         mcp_state: &McpState,
     ) -> Result<CallToolResult, McpError> {
-        eprintln!("Executing tool: {} with arguments: {}", tool_name, arguments);
+        info!("Executing tool: {} with arguments: {}", tool_name, arguments);
         
         let client = mcp_state.client.as_ref()
             .ok_or_else(|| {
-                eprintln!("MCP client not initialized");
+                error!("MCP client not initialized");
                 McpError::NotInitialized
             })?;
         
-        eprintln!("Got MCP client, acquiring lock");
+        debug!("Got MCP client, acquiring lock");
         let client = client.lock().await;
-        eprintln!("Lock acquired, calling tool");
+        debug!("Lock acquired, calling tool");
         
         match client.call_tool(&tool_name, arguments).await {
             Ok(result) => {
-                eprintln!("Tool execution successful: {}", tool_name);
+                info!("Tool execution successful: {}", tool_name);
                 Ok(result)
             }
             Err(e) => {
-                eprintln!("Tool execution failed: {} - Error: {}", tool_name, e);
+                error!("Tool execution failed: {} - Error: {}", tool_name, e);
                 Err(e)
             }
         }
