@@ -3,7 +3,7 @@ use reqwest::Client;
 use std::{sync::Arc, time::{Duration, Instant}};
 use tokio::sync::Mutex;
 use mcp_core::Tool;
-use tracing::{debug, info, warn, error};
+use tracing::{debug, info, warn, error, instrument};
 
 #[derive(Debug, Clone)]
 pub struct OpenRouterClient {
@@ -206,6 +206,7 @@ impl OpenRouterClient {
         }
     }
     
+    #[instrument(level = "debug", skip(self))]
     async fn throttle(&self) -> Result<(), OpenRouterError> {
         let mut last_request_time = self.last_request_time.lock().await;
         
@@ -221,6 +222,7 @@ impl OpenRouterClient {
         Ok(())
     }
     
+    #[instrument(level = "debug", skip(self, messages), fields(model = model, msg_count = messages.len(), max_tokens = ?max_tokens))]
     pub async fn chat_completion(
         &self, 
         model: &str, 
@@ -262,6 +264,7 @@ impl OpenRouterClient {
         Ok(completion)
     }
     
+    #[instrument(level = "debug", skip(self))]
     pub async fn list_models(&self) -> Result<Vec<ModelInfo>, OpenRouterError> {
         // Throttle requests to avoid rate limiting
         self.throttle().await?;
@@ -324,6 +327,7 @@ impl OpenRouterClient {
         }
     }
     
+    #[instrument(level = "debug", skip(self))]
     pub async fn get_credit_balance(&self) -> Result<CreditBalanceResponse, OpenRouterError> {
         // Throttle requests to avoid rate limiting
         self.throttle().await?;
@@ -358,6 +362,7 @@ impl ToolSelector {
         Self
     }
     
+    #[instrument(level = "debug", skip(self, available_tools), fields(query_len = query.len(), tools_count = available_tools.len()))]
     pub fn select_tools(&self, query: &str, available_tools: &[Tool]) -> Vec<Tool> {
         // Simple keyword matching approach for initial implementation
         let query_lower = query.to_lowercase();

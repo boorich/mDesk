@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use tracing::{info, debug, warn, error, trace};
+use tracing::{info, debug, warn, error, trace, instrument};
 
 use mcp_client::{
     ClientCapabilities, ClientInfo, Error as McpError, McpClient, McpClientTrait, McpService,
@@ -24,6 +24,7 @@ use components::server_manager::ServerManager;
 use server_config::ServerConfig;
 
 // Load environment variables from .env file if it exists
+#[instrument(level = "info")]
 fn load_env() {
     match dotenv() {
         Ok(_) => info!("Loaded environment from .env file"),

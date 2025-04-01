@@ -2,12 +2,14 @@ use mcp_core::Tool;
 use serde_json::Value;
 use anyhow::{Result, anyhow};
 use jsonschema::{JSONSchema, Draft};
+use tracing::{debug, error, info, instrument};
 
 /// Validates and potentially fixes parameters against a tool's schema
 pub struct ParameterValidator;
 
 impl ParameterValidator {
     /// Validates parameters against a tool's schema
+    #[instrument(level = "debug", skip(parameters), fields(tool_name = %tool.name))]
     pub fn validate_parameters(tool: &Tool, parameters: &Value) -> Result<()> {
         let schema = JSONSchema::options()
             .with_draft(Draft::Draft7)
@@ -140,6 +142,7 @@ impl ParameterValidator {
     }
 
     /// Attempts to fix invalid parameters by applying defaults or removing invalid fields
+    #[instrument(level = "debug", skip(parameters), fields(tool_name = %tool.name))]
     pub fn fix_parameters(tool: &Tool, parameters: Value) -> Result<Value> {
         // Start with empty object if parameters is not an object
         let mut fixed = if parameters.is_object() {

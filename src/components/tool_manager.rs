@@ -5,9 +5,10 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use regex::Regex;
-use tracing::{debug, info, warn, error, trace};
+use tracing::{debug, info, warn, error, trace, instrument};
 use crate::components::tool_suggestion::{ToolSuggestionProps, ToolExecutionProps, ToolExecutionStatus};
 use crate::McpState;
+use anyhow::Result;
 
 /// Types of tool interactions detected in messages
 #[derive(Debug, Clone, PartialEq)]
@@ -134,6 +135,7 @@ impl ToolManager {
     }
     
     /// Execute a tool with the given name and arguments
+    #[instrument(level = "debug", skip(arguments, mcp_state), fields(tool_name = %tool_name))]
     pub async fn execute_tool(
         tool_name: String,
         arguments: Value,

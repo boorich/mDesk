@@ -5,9 +5,10 @@ use tracing_subscriber::{
 };
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use std::sync::Once;
-use tracing::Level;
+use tracing::{Level, instrument};
 
 /// Initialize the application logger with both console and file outputs
+#[instrument(level = "info", skip_all)]
 pub fn init() -> Result<(), Box<dyn std::error::Error>> {
     // Create log directory if it doesn't exist
     let log_dir = get_log_directory();
@@ -55,6 +56,7 @@ pub fn init() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Initialize simple console-only logging for development
+#[instrument(level = "info", fields(log_level = %level.as_str()))]
 pub fn init_simple(level: Level) -> Result<(), Box<dyn std::error::Error>> {
     let filter_layer = EnvFilter::try_from_default_env()
         .or_else(|_| {

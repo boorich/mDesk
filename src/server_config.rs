@@ -4,6 +4,7 @@ use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::Path;
 use uuid::Uuid;
+use tracing::{debug, info, instrument};
 
 /// Type alias for convenience when accessing global state
 #[allow(non_upper_case_globals)]
@@ -92,7 +93,8 @@ impl ServerConfigs {
     }
 
     /// Load server configurations from a file
-    pub fn load_from_file<P: AsRef<Path>>(path: P) -> io::Result<Self> {
+    #[instrument(level = "info", fields(config_path = %path.as_ref().display()))]
+    pub fn load_from_file<P: AsRef<Path> + std::fmt::Debug>(path: P) -> io::Result<Self> {
         let mut file = File::open(path)?;
         let mut contents = String::new();
         file.read_to_string(&mut contents)?;
@@ -102,7 +104,8 @@ impl ServerConfigs {
     }
 
     /// Save server configurations to a file
-    pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
+    #[instrument(level = "info", fields(config_path = %path.as_ref().display()))]
+    pub fn save_to_file<P: AsRef<Path> + std::fmt::Debug>(&self, path: P) -> io::Result<()> {
         let json = serde_json::to_string_pretty(self)?;
         let mut file = File::create(path)?;
         file.write_all(json.as_bytes())?;

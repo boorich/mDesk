@@ -41,10 +41,12 @@ pub struct ToolMatch {
 }
 
 impl ToolMatch {
+    #[instrument(level = "debug", skip(self), fields(tool_name = %self.tool.name))]
     pub fn is_valid(&self) -> bool {
         matches!(self.validation_status, ValidationStatus::Valid | ValidationStatus::Fixed { .. })
     }
 
+    #[instrument(level = "debug", skip(self), fields(tool_name = %self.tool.name))]
     pub fn validation_error(&self) -> Option<&str> {
         if let ValidationStatus::Failed { error } = &self.validation_status {
             Some(error)
@@ -61,22 +63,26 @@ pub struct RankedToolSelection {
 }
 
 impl RankedToolSelection {
+    #[instrument(level = "debug", skip(matches), fields(match_count = matches.len()))]
     pub fn new(matches: Vec<ToolMatch>) -> Self {
         Self { matches }
     }
 
     /// Returns the best match if it meets a minimum confidence threshold
+    #[instrument(level = "debug", skip(self))]
     pub fn best_match(&self) -> Option<&ToolMatch> {
         self.matches.iter().max_by(|a, b| a.confidence.partial_cmp(&b.confidence).unwrap())
     }
 
     /// Returns all matches above a certain confidence threshold
+    #[instrument(level = "debug", skip(self), fields(threshold = %confidence_threshold))]
     pub fn viable_matches(&self, confidence_threshold: f64) -> Vec<&ToolMatch> {
         self.matches.iter()
             .filter(|m| m.confidence >= confidence_threshold)
             .collect()
     }
 
+    #[instrument(level = "debug", skip(self), fields(threshold = %confidence_threshold))]
     pub fn valid_matches(&self, confidence_threshold: f64) -> Vec<&ToolMatch> {
         self.matches.iter()
             .filter(|m| {
@@ -105,6 +111,7 @@ impl RankedToolSelection {
         self.matches.is_empty()
     }
 
+    #[instrument(level = "debug", skip(self))]
     pub fn validation_summary(&self) -> String {
         let total = self.matches.len();
         let valid = self.matches.iter().filter(|m| m.is_valid()).count();
@@ -129,6 +136,7 @@ pub struct LLMToolSelector {
 }
 
 impl LLMToolSelector {
+    #[instrument(level = "info", skip(api_key), fields(model = %model))]
     pub fn new(api_key: String, model: String) -> Self {
         info!("Creating new LLMToolSelector with model: {}", model);
         Self {
@@ -139,11 +147,13 @@ impl LLMToolSelector {
         }
     }
     
+    #[instrument(level = "debug", skip(self, cache))]
     pub fn with_cache(mut self, cache: Arc<ToolSelectionCache>) -> Self {
         self.cache = cache;
         self
     }
     
+    #[instrument(level = "debug", skip(self), fields(max_tools = max_tools))]
     pub fn with_max_prompt_tools(mut self, max_tools: usize) -> Self {
         self.max_prompt_tools = max_tools;
         self
@@ -472,12 +482,14 @@ impl LLMToolSelector {
     }
     
     /// Gets the current cache statistics
+    #[instrument(level = "debug", skip(self))]
     pub fn cache_stats(&self) -> serde_json::Value {
         let stats = self.cache.stats();
         serde_json::to_value(stats).unwrap_or_default()
     }
     
     /// Invalidates the tool selection cache
+    #[instrument(level = "info", skip(self))]
     pub fn invalidate_cache(&self) {
         self.cache.clear();
     }
